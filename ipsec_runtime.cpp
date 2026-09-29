@@ -1,7 +1,14 @@
 // ============================================================================
 // ipsec_runtime.cpp -- siehe ipsec_runtime.h. Portiert vom CI-bewiesenen esp_natt_itest.c.
+//
+// Baustein IPSEC (weirdos_features.h): bei WEIRDOS_FEATURE_IPSEC=0 bleibt nur der Stub am Ende
+// dieser Datei. Sie ist (neben ipsec_trust_store.cpp) die EINZIGE Uebersetzungseinheit, die den
+// vendored WeirdIKE-Kern (src/weirdike/*.c) referenziert -- ohne diese Referenzen wirft
+// --gc-sections den Kern samt seiner Puffer aus Flash und RAM.
 // ============================================================================
+#include "weirdos_features.h"
 #include "ipsec_runtime.h"
+#if WEIRDOS_FEATURE_IPSEC
 #include "ipsec_crypto_caps.h"   // UI-Kennungen -> IANA-IDs (typisierte WeirdIKE-Policy), Namen fuer den Status
 #include "vpn_status.h"    // fillVpnStatus: Runtime-Anteil des einheitlichen VPN-Status
 #include "egress_policy.h"
@@ -1335,3 +1342,50 @@ String IpsecRuntime::cryptoSelfTest(int len) {
     }
     return String("crypttest len=") + len + " x" + N + "  random_fail=" + fR + "(rc" + lastR + ")  aes_fail=" + fA + "(rc" + lastA + ")  hmac_fail=" + fH + "  mbedtls_aes_direkt_fail=" + fSw;
 }
+
+#else  // !WEIRDOS_FEATURE_IPSEC
+// Stub: IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)
+// Kein Socket, kein lwIP-netif ipsec0, kein WeirdIKE: jede Methode aus ipsec_runtime.h meldet
+// "nicht da" (false / 0 / "" / nullptr). Verbraucher: Netz-Registry (ipsec0-Sicht), Zonen
+// (access_policy, network_platform), Konsole, Web-UI (PFS-Hinweis), IpsecService.
+#include "lwip/netif.h"   // uplinkMtu(): MTU des Default-Interfaces -- keine IPsec-Eigenschaft (siehe unten)
+
+IpsecRuntime ipsecRuntime;
+
+String IpsecRuntime::start(const IpsecConfig&, const String&, const String&) { return "IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)"; }
+void   IpsecRuntime::stop() {}
+void   IpsecRuntime::poll() {}
+bool   IpsecRuntime::rekeyNow() { return false; }
+bool   IpsecRuntime::ikeRekeyNow() { return false; }
+bool   IpsecRuntime::isUp() const { return false; }
+bool   IpsecRuntime::peerPfsRejected() const { return false; }
+bool   IpsecRuntime::isActive() const { return false; }
+String IpsecRuntime::stateText() const { return "nicht im Build enthalten"; }
+String IpsecRuntime::diagJson() const { return "{\"ok\":false,\"builtIn\":false}"; }
+void   IpsecRuntime::fillVpnStatus(VpnStatus&) const {}
+
+IpsecPingResult IpsecRuntime::testPing(const String&) {
+    IpsecPingResult r;
+    r.ok = false; r.stage = "not built"; r.detail = "IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)";
+    return r;
+}
+
+// ipsec0 existiert nicht: down, keine Adresse, kein Netz, kein netif.
+bool   IpsecRuntime::tunnelUp() const { return false; }
+String IpsecRuntime::tunnelIp() const { return ""; }
+String IpsecRuntime::tunnelRoute() const { return ""; }
+bool   IpsecRuntime::tunnelContains(const String&) const { return false; }
+int    IpsecRuntime::tunnelMtu() const { return 0; }
+bool   IpsecRuntime::setTunnelMtu(int) { return false; }
+// Bewusst KEIN 0-Stub: network_registry.cpp nimmt diesen Wert als MTU des Modem-Uplinks
+// (Attachment "modem-uplink", nicht ipsec0) -> Zonen-Planner mtuHint / Diagnose. Die Auskunft
+// haengt nicht an IPsec, nur an lwIP -- deshalb hier dieselbe Antwort wie in der echten Runtime.
+int    IpsecRuntime::uplinkMtu() const { struct netif* d = netif_default; return d ? d->mtu : 0; }
+bool   IpsecRuntime::tunnelNetInfo(IpsecNetInfo& out) const { out = IpsecNetInfo(); return false; }
+void*  IpsecRuntime::nativeNetif() const { return nullptr; }
+String IpsecRuntime::cryptoSelfTest(int) { return "IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)"; }
+
+// Kein RTC-Marker ohne Runtime -> nichts zu melden.
+void ipsecRuntimeBootReport() {}
+
+#endif // WEIRDOS_FEATURE_IPSEC

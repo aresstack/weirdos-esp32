@@ -10,8 +10,11 @@
 //              CP-SUBNET nur mit TSr-Deckung, entscheidet die Registry).
 //   Ueberlauf einer Prefix-Menge wird nicht abgeschnitten, sondern markiert (overflow) -> der
 //   Planner liefert IMPOSSIBLE mit Grund.
+// Baustein ROUTER (WEIRDOS_FEATURE_ROUTER): bei 0 bleibt nur der Stub am Dateiende (Header unveraendert).
 // ============================================================================
+#include "weirdos_features.h"
 #include "zone_planner_adapter.h"
+#if WEIRDOS_FEATURE_ROUTER
 #include "network_registry.h"
 
 static bool parseIp(const String& s, uint32_t& out) {
@@ -194,3 +197,29 @@ String zoneAttachmentsText() {
     t += "Planner-Vorschau: 'zones plan <quelle> <ziel> [allow|deny|route|nat]'";
     return t;
 }
+
+#else
+// ============================================================================
+// Stub: Netzzonen nicht im Build enthalten (WEIRDOS_FEATURE_ROUTER=0).
+// Dieselben Symbole wie zone_planner_adapter.h; keine Referenz auf Registry oder Planner (zone_planner.cpp
+// faellt so beim Linken heraus). Nur der Intent-Parser bleibt funktional: er ist eine reine Wortliste ohne
+// Zustand, und Konsole ('zones plan') wie /zones-plan.json sollen die "nicht im Build"-Antwort liefern statt
+// einer irrefuehrenden "Intent unbekannt"-Meldung.
+// ============================================================================
+static const char* const kZoneNotBuilt = "Netzzonen nicht im Build enthalten (WEIRDOS_FEATURE_ROUTER=0)";
+
+int zoneAdapterBuild(ZpAttachment* out, int maxOut) { (void)out; (void)maxOut; return 0; }
+
+ZoneIntent zoneIntentParse(const String& s, bool& ok) {
+    String t = s; t.trim(); t.toLowerCase(); ok = true;
+    if (t == "deny" || t == "getrennt") return ZI_DENY;
+    if (t == "allow" || t == "allow_auto" || t == "auto" || t == "") return ZI_ALLOW_AUTO;
+    if (t == "route" || t == "route_only") return ZI_ROUTE_ONLY;
+    if (t == "nat" || t == "nat_only") return ZI_NAT_ONLY;
+    ok = false; return ZI_DENY;
+}
+
+String zonePlanText(const String& src, const String& dst, ZoneIntent intent) { (void)src; (void)dst; (void)intent; return "Netzzonen: nicht im Build enthalten (WEIRDOS_FEATURE_ROUTER=0)"; }
+String zonePlanJson(const String& src, const String& dst, ZoneIntent intent) { (void)src; (void)dst; (void)intent; return String("{\"builtIn\":false,\"error\":\"") + kZoneNotBuilt + "\",\"installed\":false}"; }
+String zoneAttachmentsText() { return "Netzzonen: nicht im Build enthalten (WEIRDOS_FEATURE_ROUTER=0)"; }
+#endif // WEIRDOS_FEATURE_ROUTER

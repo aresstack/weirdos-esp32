@@ -2,8 +2,14 @@
 // ipsec_service.cpp -- IPsec/IKEv2 (+ L2TP/IPsec) Backend. Siehe ipsec_service.h.
 // Config/Persistenz/Status voll funktionsfaehig; IKE/ESP-Runtime noch nicht (ehrlich in
 // connect()/statusJson()). Bewusst lwIP-frei, analog WireGuardService.
+//
+// Baustein IPSEC (weirdos_features.h): bei WEIRDOS_FEATURE_IPSEC=0 bleibt nur der Stub am Ende
+// dieser Datei -- die echte Implementierung und (ueber ipsec_runtime.cpp) der WeirdIKE-Kern werden
+// nicht referenziert und vom Linker verworfen. Der Header bleibt fuer alle Verbraucher gleich.
 // ============================================================================
+#include "weirdos_features.h"
 #include "ipsec_service.h"
+#if WEIRDOS_FEATURE_IPSEC
 #include "ipsec_crypto_caps.h"   // Richtlinie (DH/Enc/Hash/PFS/Auth) gegen Faehigkeitstabelle pruefen
 #include "ipsec_runtime.h"
 #include "wan_service.h"     // Autostart-Guard: nur connecten wenn WAN echtes Internet hat
@@ -671,3 +677,81 @@ String IpsecService::statusJson() {
     j += "}";
     return j;
 }
+
+#else  // !WEIRDOS_FEATURE_IPSEC
+// Stub: IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)
+// Jede in ipsec_service.h deklarierte Methode bekommt einen trivialen Rumpf, damit alle Verbraucher
+// (Composition Root, Konsole, Web-UI, Netz-Registry, VPN-Status) unveraendert kompilieren und linken.
+// Kein NVS, keine Runtime, kein WeirdIKE; Secrets bleiben leer. Die Inline-Getter des Headers
+// (config(), pskSet(), pskEquals() ...) arbeiten auf den leeren Membern.
+
+IpsecService ipsecService;
+
+static const char* const kIpsecNotBuilt = "IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)";
+
+// ---- Backend/Status --------------------------------------------------------
+void   IpsecService::begin() {}
+bool   IpsecService::runtimeAvailable() const { return false; }
+bool   IpsecService::isUp() const { return false; }
+String IpsecService::statusText() const { return "IPsec: nicht im Build enthalten"; }
+
+// ---- Persistenz ------------------------------------------------------------
+void   IpsecService::loadConfig() {}
+String IpsecService::saveConfig(const IpsecConfig&, const String&, const String&) { return kIpsecNotBuilt; }
+bool   IpsecService::addConfigObserver(ConfigObserver, void*) { return false; }
+void   IpsecService::signalConfigSaved() {}
+
+// ---- Kommandos / Lifecycle -------------------------------------------------
+String IpsecService::requestConnect() { return kIpsecNotBuilt; }
+void   IpsecService::requestDisconnect() {}
+void   IpsecService::requestDeactivate() {}
+void   IpsecService::requestRekey() {}
+void   IpsecService::requestIkeRekey() {}
+void   IpsecService::supervise() {}
+
+// ---- Status / Diagnose -----------------------------------------------------
+String IpsecService::statusJson() { return "{\"ok\":false,\"builtIn\":false,\"state\":\"nicht im Build enthalten\"}"; }
+VpnStatus IpsecService::vpnStatus() {
+    VpnStatus s;
+    s.service   = "IPsec/IKEv2";
+    s.role      = cfg_.mode;
+    s.active    = false;
+    s.state     = VpnState::Inactive;
+    s.stateText = "nicht im Build enthalten";
+    return s;
+}
+String IpsecService::testPingJson(const String&) {
+    return String("{\"ok\":false,\"builtIn\":false,\"stage\":\"not built\",\"detail\":\"") + kIpsecNotBuilt + "\"}";
+}
+IpsecPingResult IpsecService::pingOwnerPath(const String&) {
+    IpsecPingResult r;
+    r.ok = false; r.stage = "not built"; r.detail = kIpsecNotBuilt;
+    return r;
+}
+String IpsecService::pingHistoryJson() const { return "{\"ok\":false,\"builtIn\":false,\"targets\":[]}"; }
+void   IpsecService::rememberPingTarget(const String&) {}
+bool   IpsecService::forgetPingTarget(const String&) { return false; }
+
+// ---- Benutzer/Clients (Server-Rolle) --------------------------------------
+String IpsecService::usersJson() { return "[]"; }
+String IpsecService::addUser(const String&) { return kIpsecNotBuilt; }
+bool   IpsecService::deleteUser(int) { return false; }
+
+// ---- Statische Helfer ------------------------------------------------------
+String IpsecService::idText(const String& type, const String& value) { return type + ":" + value; }
+String IpsecService::policyError(const IpsecConfig&) { return ""; }
+
+// ---- Private Helfer (im Header deklariert; hier ohne Wirkung, Mutex-Member bleibt unangetastet) ----
+void   IpsecService::notifyConfigChanged() {}
+void   IpsecService::lifecycleObserver(const IpsecConfig&, void*) {}
+void   IpsecService::lock() const {}
+void   IpsecService::unlock() const {}
+String IpsecService::validateCfg(const IpsecConfig&, bool, bool) const { return ""; }
+String IpsecService::startNow() { return kIpsecNotBuilt; }
+void   IpsecService::loadUsers() {}
+void   IpsecService::loadPingHistory() {}
+void   IpsecService::savePingHistory() {}
+void   IpsecService::saveUsers() {}
+String IpsecService::validate() const { return ""; }
+
+#endif // WEIRDOS_FEATURE_IPSEC

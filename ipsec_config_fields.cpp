@@ -1,7 +1,12 @@
 // ============================================================================
 // ipsec_config_fields.cpp -- siehe ipsec_config_fields.h (EIN Feld-Layer fuer Web + Konsole).
+//
+// Baustein IPSEC (weirdos_features.h): bei WEIRDOS_FEATURE_IPSEC=0 bleibt nur der Stub am Ende
+// dieser Datei (leere Feldtabelle, jede Zuweisung lehnt ab).
 // ============================================================================
+#include "weirdos_features.h"
 #include "ipsec_config_fields.h"
+#if WEIRDOS_FEATURE_IPSEC
 
 // Feldtabelle. Enum-Werte sind die gespeicherten Kennungen (identisch mit den Web-<option>-Werten).
 // Identitaeten: Typ und Wert sind GETRENNTE Felder -- kein Erraten des Typs aus dem Text, auch seriell.
@@ -178,3 +183,21 @@ String ipsecConfigDump(const IpsecConfig& c, bool pskSet, size_t pskLen, bool ea
     }
     return o;
 }
+
+#else  // !WEIRDOS_FEATURE_IPSEC
+// Stub: IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)
+// Leere Feldtabelle (count 0, aber ein gueltiger Zeiger), kein Schluessel bekannt, jede Zuweisung
+// wird abgelehnt. Web-POST /ipsec-save und Konsole 'ipsec fields|get|set' laufen damit ins Leere,
+// ohne den echten Feld-Layer zu linken.
+
+// Nullinitialisierter Platzhalter, damit ipsecFieldTable() nie nullptr liefert (count bleibt 0).
+static const IpsecFieldDef kFieldsNone[1] = {};
+
+const IpsecFieldDef* ipsecFieldTable(int& count) { count = 0; return kFieldsNone; }
+const IpsecFieldDef* ipsecFieldFind(const String&) { return nullptr; }
+String ipsecFieldGet(const IpsecConfig&, const IpsecFieldDef&) { return ""; }
+String ipsecFieldSet(IpsecConfig&, const IpsecFieldDef&, const String&) { return "IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)"; }
+String ipsecFieldAllowed(const IpsecFieldDef&) { return ""; }
+String ipsecConfigDump(const IpsecConfig&, bool, size_t, bool) { return "  IPsec: nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)\r\n"; }
+
+#endif // WEIRDOS_FEATURE_IPSEC

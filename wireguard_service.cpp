@@ -3,8 +3,18 @@
 // Unbedingtes #include zieht die WireGuard-ESP32-Lib in Build/Link (Arduino-
 // Library-Discovery braucht das ungeguarded). begin() startet KEINEN Tunnel -
 // das ist 7.4 (Underlay-Bindung aus der NetworkRegistry).
+//
+// Baustein-Schalter WEIRDOS_FEATURE_WIREGUARD (weirdos_features.h):
+//   1 = echte Implementierung (unten, unveraendert), zieht src/WireGuard/** in den Link.
+//   0 = Stub am Dateiende: dieselbe Klasse, alle Methoden trivial, KEINE Referenz auf das
+//       vendored Backend -> der Linker wirft src/WireGuard/** samt Crypto mit --gc-sections
+//       heraus (reines C ohne globale Konstruktoren, nichts sonst referenziert es).
+//       Die Consumer (Registry, Konsole, UI, Zonen, .ino) kompilieren und linken unveraendert.
 // ============================================================================
+#include "weirdos_features.h"
 #include "wireguard_service.h"
+
+#if WEIRDOS_FEATURE_WIREGUARD
 #include "src/WireGuard/WireGuard-ESP32.h"   // vendored (7.4a) - quoted include, damit
                                              // Arduino NICHT die installierte Lib zieht
 #include "egress_policy.h"      // egressResolve (Policy -> NetIface)
@@ -546,3 +556,96 @@ String WireGuardService::statusJson() {
     j += "}";
     return j;
 }
+
+#else  // !WEIRDOS_FEATURE_WIREGUARD
+// ============================================================================
+// Stub: WireGuard nicht im Build enthalten (WEIRDOS_FEATURE_WIREGUARD=0)
+//
+// Gleiche Klasse, gleiches globales Objekt, jede Methode aus wireguard_service.h trivial
+// implementiert -- damit alle Consumer (network_registry, network_platform, zone_runtime,
+// vpn_status, serial_console, ui_internet, .ino) unveraendert kompilieren und linken.
+// KEIN Include aus src/WireGuard/**, kein Preferences/NVS, kein Task: nichts referenziert
+// das vendored Backend, --gc-sections entfernt es vollstaendig (Flash + statisches RAM).
+//
+// Semantik: cfg_ bleibt der Header-Default (mode "server", localIp "", active false),
+// d.h. die Inline-Getter im Header liefern isServerRole()=true, tunnelLocalIp()="",
+// clientCount()=0, privateKeySet()/pskSet()=false, lastError()=letzter Stub-Fehlertext.
+// ============================================================================
+
+// Ein Fehlertext fuer alles, was der Aufrufer sonst als Erfolg deuten koennte.
+static const char* const kWgNotBuilt = "WireGuard nicht im Build enthalten (WEIRDOS_FEATURE_WIREGUARD=0)";
+
+WireGuardService wireguardService;
+
+// ---- Lifecycle: alles No-op --------------------------------------------------
+void WireGuardService::begin()              {}
+void WireGuardService::loadConfig()         {}   // keine NVS-Lesung: cfg_ bleibt Default
+void WireGuardService::disconnect()         {}
+void WireGuardService::supervise()          {}   // kein Autostart, kein Backoff
+void WireGuardService::runConnectBlocking() {}
+
+// ---- Status ------------------------------------------------------------------
+bool   WireGuardService::backendAvailable() const { return false; }
+bool   WireGuardService::isUp() const             { return false; }
+bool   WireGuardService::ifaceUp() const          { return false; }
+void*  WireGuardService::nativeNetif() const      { return nullptr; }   // network_platform: "wg0" -> kein netif
+String WireGuardService::statusText() const       { return "WireGuard: nicht im Build enthalten"; }
+
+// Beides gueltiges JSON (die Consumer senden es als application/json weiter).
+String WireGuardService::statusJson() {
+    return "{\"ok\":false,\"builtIn\":false,\"state\":\"nicht im Build enthalten\"}";
+}
+String WireGuardService::underlayDiagJson(const String& sel) {
+    (void)sel;
+    return String("{\"ok\":false,\"builtIn\":false,\"error\":\"") + kWgNotBuilt + "\"}";
+}
+
+VpnStatus WireGuardService::vpnStatus() {
+    VpnStatus s;
+    s.service   = "WireGuard";
+    s.role      = isServerRole() ? "server" : "client";
+    s.active    = false;
+    s.state     = VpnState::Inactive;
+    s.stateText = "nicht im Build enthalten";
+    return s;
+}
+
+// ---- Konfiguration / Schluessel: nichts wird gespeichert oder erzeugt ----------
+String WireGuardService::saveConfig(const WireGuardConfig& cfg, const String& privKeyOrEmpty, const String& pskOrEmpty) {
+    (void)cfg; (void)privKeyOrEmpty; (void)pskOrEmpty;
+    lastError_ = kWgNotBuilt;
+    return kWgNotBuilt;
+}
+bool   WireGuardService::ensureMcuKey()  { lastError_ = kWgNotBuilt; return false; }
+String WireGuardService::mcuPublicKey()  { return ""; }
+
+// ---- Tunnel-Lifecycle: connect() meldet den Fehler als Rueckgabe UND in lastError_
+//      (serial_console druckt "Fehler: " + lastError(); die .ino nutzt den Rueckgabewert).
+String WireGuardService::connect() {
+    lastError_ = kWgNotBuilt;
+    return kWgNotBuilt;
+}
+
+// ---- Client-Geraete (Server-Rolle) --------------------------------------------
+// Header-Vertrag: leerer Rueckgabestring = Fehler, Grund in lastError_. (Der Fehlertext
+// als .conf zurueckgegeben wuerde von der UI als gueltige Konfiguration/QR gerendert.)
+String WireGuardService::generateClientConfig(const String& endpointHostForClient, const String& name) {
+    (void)endpointHostForClient; (void)name;
+    lastError_ = kWgNotBuilt;
+    return "";
+}
+String WireGuardService::clientsJson()          { return "[]"; }
+bool   WireGuardService::deleteClient(int index) { (void)index; return false; }
+
+// ---- Netzsicht fuer die Registry (Zonen 0.1) -----------------------------------
+String WireGuardService::peerAllowedCidrs()  { return ""; }
+String WireGuardService::clientConfigCidrs() { return ""; }
+
+// ---- private Helfer (nur der Vollstaendigkeit halber definiert) -----------------
+String WireGuardService::lanCidrsForClient() { return ""; }
+void   WireGuardService::loadClients()       {}
+void   WireGuardService::saveClients()       {}
+String WireGuardService::nextClientIp()      { return ""; }
+void   WireGuardService::addAllServerPeers() {}
+
+#endif // WEIRDOS_FEATURE_WIREGUARD

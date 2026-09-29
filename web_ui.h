@@ -14,14 +14,11 @@
 #include "ec200a_modem.h"   // Modem-Globals, LTE_BANDS, modemStatusText, modemProfileLteMask
 
 // ---- Board-Capabilities (ehrliches Gate; keine Behauptung ueber jedes Board) --
-#if __has_include("soc/soc_caps.h")
-#include "soc/soc_caps.h"
-#endif
-#if defined(SOC_BT_SUPPORTED) && SOC_BT_SUPPORTED
-#define WEIRDOS_HAS_BT 1
-#else
-#define WEIRDOS_HAS_BT 0
-#endif
+// Seit dem Schalterkasten (weirdos_features.h) ist BLE ein Baustein: WEIRDOS_FEATURE_BLE
+// ist nur 1, wenn der SoC BLE hat UND der Baustein gewaehlt ist. Der alte Name bleibt
+// als Alias, damit ui_bluetooth.cpp und die .ino unveraendert weiterlaufen.
+#include "weirdos_features.h"
+#define WEIRDOS_HAS_BT WEIRDOS_FEATURE_BLE
 
 // Der globale Arduino-WebServer ist entfallen (Control-Plane = WeirdHttpEsp). Die
 // View schreibt ausschliesslich ueber WeirdUiWriter/WeirdHttpResponse.

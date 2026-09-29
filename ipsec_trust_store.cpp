@@ -4,8 +4,14 @@
 // mbedtls_ssl_config (Verify-Callback + Dummy-CA-Kette). Wir lesen genau diese drei Felder wieder
 // aus und geben sie dem WeirdIKE-Adapter als Host-Truststore -- derselbe Pfad, den esp-tls fuer
 // jede HTTPS-Verbindung nutzt (gleiche Callback-Semantik, gleiche Kettenpruefung).
+//
+// Baustein IPSEC (weirdos_features.h): bei WEIRDOS_FEATURE_IPSEC=0 bleibt nur der Stub am Ende
+// dieser Datei (kein Bundle-Attach, keine Zertifikatsinfo). Das MBEDTLS-Define bleibt VOR dem
+// ersten mbedTLS-Include (der Header zieht crypto_mbedtls.h -> mbedtls/*.h ein).
 #define MBEDTLS_ALLOW_PRIVATE_ACCESS
+#include "weirdos_features.h"
 #include "ipsec_trust_store.h"
+#if WEIRDOS_FEATURE_IPSEC
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #include <esp_crt_bundle.h>
@@ -96,3 +102,16 @@ String ipsecCertInfoJson(const String& pem) {
     out += "]}";
     return out;
 }
+
+#else  // !WEIRDOS_FEATURE_IPSEC
+// Stub: IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)
+// Kein Host-Truststore, keine Zertifikatsinfo. Der Typ weirdike_mbedtls_host_store_t kommt weiter
+// aus dem unveraenderten Header (nur Deklarationen) -- es wird KEIN WeirdIKE-Code referenziert.
+#include <string.h>
+
+int         ipsecTrustModeId(const String&) { return 0; }
+const char* ipsecTrustModeLabel(const String&) { return "nicht im Build enthalten"; }
+bool        ipsecHostTrustStore(weirdike_mbedtls_host_store_t& out) { memset(&out, 0, sizeof(out)); return false; }
+String      ipsecCertInfoJson(const String&) { return "{\"ok\":false,\"builtIn\":false,\"certs\":[]}"; }
+
+#endif // WEIRDOS_FEATURE_IPSEC

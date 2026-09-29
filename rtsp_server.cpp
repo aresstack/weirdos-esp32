@@ -13,7 +13,12 @@
 //     RTP-Senke statt fMP4. Bewusst NICHT mit h264RunSession verschmolzen (der bewiesene fMP4-Pfad bleibt
 //     unangetastet); dieselbe Exklusivitaet ueber g_h264ActiveRef (ein HW-Encoder).
 // ============================================================================
-#include "rtsp_server.h"
+#include "weirdos_features.h"        // WEIRDOS_FEATURE_RTSP -- der Schalter dieses Bausteins
+#include "rtsp_server.h"             // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_RTSP
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_RTSP=1)
+// ============================================================================
 #include "web_ui.h"                  // streamKey, multiStreamEnabled, cameraReady, cameraTargetFps, h264Kbit
 #include "camera_stream_service.h"   // cameraStream (JPEG-Consumer-API + Roh-Ausleihe)
 #include "camera_manager.h"          // cameraManager (Modus fuer H.264)
@@ -646,3 +651,26 @@ String RtspServer::statusText() {
     if (s_sess) for (int i = 0; i < RTSP_MAX_SESSIONS; i++) { RtspSession& s = s_sess[i]; if (s.used) t += String("  ") + s.ip + " " + (s.mount == M_H264 ? "/h264" : "/mjpeg") + " " + (s.tcp ? "tcp" : "udp") + (s.playing ? " PLAY" : " ") + " Pakete " + s.pkts + " Bytes " + s.octets + "\r\n"; }
     return t;
 }
+
+#else
+// ============================================================================
+// Stub: nicht im Build enthalten (WEIRDOS_FEATURE_RTSP=0).
+// Dieselben Symbole wie oben, triviale Koerper: die Querkonsumenten (Composition Root,
+// Konsole) referenzieren rtspServer und muessen weiter linken. Kein Socket, kein Task,
+// kein PSRAM -- sockets/FreeRTOS/Encoder werden hier nicht einmal eingebunden, der
+// Linker wirft den ganzen Rest heraus. running()/workerRunning() (inline im Header)
+// melden ueber die Vorgaben listenFd_=-1 / taskRunning_=false korrekt "aus".
+// ============================================================================
+RtspServer rtspServer;
+
+bool   RtspServer::begin(uint16_t, bool) { Serial.println("RTSP: nicht im Build enthalten (WEIRDOS_FEATURE_RTSP=0)"); return false; }
+void   RtspServer::stop() {}
+void   RtspServer::poll() {}
+void   RtspServer::taskLoop() {}
+int    RtspServer::clientCount() const { return 0; }
+String RtspServer::statusJson() { return String("{\"ok\":false,\"builtIn\":false,\"error\":\"RTSP nicht im Build enthalten (WEIRDOS_FEATURE_RTSP=0)\"}"); }
+String RtspServer::statusText() { return String("RTSP: nicht im Build enthalten"); }
+// Private Helfer: nie aufgerufen, aber definiert -- das Klassenlayout ist mit dem Header geteilt.
+bool   RtspServer::acceptOne()   { return false; }
+bool   RtspServer::startWorker() { return false; }
+#endif

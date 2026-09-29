@@ -2,8 +2,12 @@
 // zone_lwip_hooks.cpp -- Netzzonen 0.3-0.5: Routentabelle (fail-closed), Forward-Policy,
 // NAT-Entscheidung je Paar, Commit unter einem Core-Lock, Zaehler, Test-Filter.
 // Contract siehe zone_lwip_hooks.h.
+// Baustein ROUTER (WEIRDOS_FEATURE_ROUTER): bei 0 bleibt nur der Stub am Dateiende (Header unveraendert;
+// die extern "C"-Hook-Symbole bleiben auch dort definiert, damit ein eigener lwIP-Build immer linkt).
 // ============================================================================
+#include "weirdos_features.h"
 #include "zone_lwip_hooks.h"
+#if WEIRDOS_FEATURE_ROUTER
 #include "network_platform.h"   // netIfaceNativeHandle
 
 #include "lwip/netif.h"
@@ -485,3 +489,63 @@ String zoneLwipJson() {
     free(s);
     return j;
 }
+
+#else
+// ============================================================================
+// Stub: Netzzonen nicht im Build enthalten (WEIRDOS_FEATURE_ROUTER=0).
+// Sketch-Seite: dieselben Symbole wie zone_lwip_hooks.h, triviale Koerper (keine Tabellen, kein PSRAM, kein
+// Core-Lock). lwIP-Seite: die extern "C"-Hook-Symbole bleiben DEFINIERT -- ein eigener lwIP-Build
+// (tools/build-lwip-zones.ps1) referenziert sie schwach, ein Link mit diesem Archiv darf nie daran scheitern.
+// Sie sind hier reine Durchreicher mit Stock-Verhalten: keine Zonenroute (NO_MATCH), kein Filter (alles
+// weiterleiten), keine Policy-NAT-Entscheidung (1 = Stock: ip_napt_forward laeuft genau dann, wenn das
+// napt-Flag des Eingangsinterface gesetzt ist, z. B. vom WireGuard-LAN-Gateway), keine Zaehler. Mit dem
+// Stock-Core (CI) sind die Hooks schlicht unreferenziert und fallen beim Linken heraus.
+// ============================================================================
+#include "lwip/netif.h"
+#include "lwip/ip4_addr.h"
+#include "lwip/pbuf.h"
+#include "lwip/prot/ip4.h"
+#include <string.h>
+
+static const char* const kZoneNotBuilt = "Netzzonen nicht im Build enthalten (WEIRDOS_FEATURE_ROUTER=0)";
+
+// ---- Hooks (tcpip-Thread): inert, Stock-Verhalten -------------------------------------------------
+extern "C" int  weirdos_ip4_route_lookup(const ip4_addr_t* src, const ip4_addr_t* dest, struct netif** out) { (void)src; (void)dest; (void)out; return 0; }   // 0 = NO_MATCH: weiter wie Stock
+extern "C" int  weirdos_ip4_forward_allow(struct pbuf* p, const struct ip_hdr* iphdr, struct netif* inp, struct netif* outp) { (void)p; (void)iphdr; (void)inp; return outp ? 1 : 0; }   // ohne Ausgang verwerfen (wie Stock), sonst weiterleiten
+extern "C" int  weirdos_ip4_nat_wanted(struct pbuf* p, const struct ip_hdr* iphdr, struct netif* inp, struct netif* outp) { (void)p; (void)iphdr; (void)inp; (void)outp; return 1; }   // 1 = Stock-NAPT (napt-Flag entscheidet)
+extern "C" void weirdos_ip4_nat_done(struct netif* inp, struct netif* outp) { (void)inp; (void)outp; }
+
+bool zoneLwipRouteHookPresent()   { return false; }   // Sketch-Seite der Hooks nicht gebaut -> fuer die Zonen "nicht vorhanden"
+bool zoneLwipForwardHookPresent() { return false; }
+bool zoneHooksInit()  { return false; }
+bool zoneHooksReady() { return false; }
+
+// ---- Konsolen-Routen ---------------------------------------------------------------------------
+String zoneRouteAdd(const String& cidr, const String& ifaceId, const String& source) { (void)cidr; (void)ifaceId; (void)source; return kZoneNotBuilt; }
+String zoneRouteDel(const String& cidr) { (void)cidr; return kZoneNotBuilt; }
+void   zoneRouteClear() {}
+int    zoneRouteRebind() { return 0; }
+String zoneRoutesText() { return String(kZoneNotBuilt) + "\r\n"; }
+
+// ---- Commit: nichts veroeffentlichen, alles fail-closed melden (wie der Pfad ohne Tabellen) ---------
+void zoneHooksCommit(ZoneCommitInput& in, ZcResult& out) {
+    memset(&out, 0, sizeof(out));
+    for (int i = 0; i < in.nPairs && i < ZC_PAIR_MAX; i++) strncpy(out.pairReason[i], kZoneNotBuilt, ZC_REASON_LEN - 1);
+    for (int r = 0; r < in.nRoutes && r < ZC_ROUTE_MAX; r++) out.routeBlock[r] = true;
+}
+bool zoneRouteMatch(uint32_t ipHost, String& net, String& ifaceId, bool& block) { (void)ipHost; (void)net; (void)ifaceId; (void)block; return false; }
+
+// ---- Test-Filter / Zaehler -----------------------------------------------------------------------
+String zoneFilterDeny(const String& inIface, const String& outIface)  { (void)inIface; (void)outIface; return kZoneNotBuilt; }
+String zoneFilterAllow(const String& inIface, const String& outIface) { (void)inIface; (void)outIface; return kZoneNotBuilt; }
+void   zoneFilterClear() {}
+String zoneFiltersText()  { return String(kZoneNotBuilt) + "\r\n"; }
+String zoneCountersText() { return kZoneNotBuilt; }
+String zoneNaptText()     { return String(kZoneNotBuilt) + "\r\n"; }
+void   zoneCountersReset() {}
+
+String zoneLwipJson() {
+    return String("{\"builtIn\":false,\"error\":\"") + kZoneNotBuilt
+         + "\",\"hooks\":{\"route\":false,\"forward\":false,\"policyMode\":false},\"routes\":[],\"pairs\":[],\"filters\":[],\"counters\":[]}";
+}
+#endif // WEIRDOS_FEATURE_ROUTER

@@ -13,9 +13,9 @@
 // Ohne das Flag bleibt der Code ein Stub (Status "im Build deaktiviert"); Konfiguration/UI bleiben erhalten.
 // Weg zu echtem Laufzeit-Einschalten: eigene, minimale TinyUSB-Uebersetzung (usbd + dcd_dwc2 + video, ~2 KB
 // statisch) statt der Core-Bibliothek -- siehe USB-DEVICE.md.
-#ifndef WEIRDOS_USB_DEVICE
-#define WEIRDOS_USB_DEVICE 0
-#endif
+// Seit dem Schalterkasten ist der Key WEIRDOS_FEATURE_USB_DEVICE (weirdos_features.h); der alte
+// Name WEIRDOS_USB_DEVICE bleibt dort als Alias definiert, damit dieser Code unveraendert gilt.
+#include "weirdos_features.h"
 #if SOC_USB_OTG_SUPPORTED && defined(CONFIG_TINYUSB_ENABLED) && WEIRDOS_USB_DEVICE
 #define WEIRDOS_USBDEV_SUPPORTED 1
 #else

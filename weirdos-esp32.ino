@@ -48,6 +48,11 @@
 // Benoetigt Arduino-ESP32 Core 3.x (ESP-IDF 5.x) fuer die DHCP-Optionen.
 // -----------------------------------------------------------------------------
 
+// Schalterkasten + Regeln ZUERST: welche Bausteine im Image sind (MODULES.md, modules.json).
+// Ein Baustein mit WEIRDOS_FEATURE_<KEY>=0 wird hier nicht referenziert; seine
+// Uebersetzungseinheit liefert dann nur einen Stub ("nicht im Build enthalten").
+#include "weirdos_module_rules.h"
+
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <HTTPClient.h>            // DynDNS-Update + Speedtest/Internet-Test (GET/POST)
@@ -762,13 +767,21 @@ void setup() {
     Serial.printf("USB-Device gewuenscht: %s (Port %s)\n", usbDeviceService.enabled() ? (String("UVC <- ") + usbDeviceService.config().cam).c_str() : "aus", usbDeviceService.config().port.c_str());
     pinMode(FACTORY_RESET_PIN, INPUT_PULLUP);  // BOOT-Taste als Werksreset-Eingang (GPIO0)
     esp32BoundHttpTransportBegin();   // gebundenen HTTPS-Worker frueh starten (Stack aus frischem Heap)
+#if WEIRDOS_FEATURE_WIREGUARD
     wireguardService.begin();         // Stufe 7.3: WireGuard-Backend einbinden (kein Tunnel)
     wireguardService.loadConfig();    // Stufe 7.4c: Tunnel-Config aus NVS (kein Autostart)
+#endif
+#if WEIRDOS_FEATURE_IPSEC
     ipsecService.begin();             // 8.1: IPsec-Backend (Config/Status; Runtime folgt)
+#endif
+#if WEIRDOS_FEATURE_ROUTER
     zoneRuntimeBegin();               // Netzzonen 0.5: Tabellen im PSRAM, persistente Intents laden (Installation folgt im loop-Poll)
+#endif
     logHeapMark("nach Zonen-Runtime");   // muss praktisch identisch zur vorigen Marke sein (alles im PSRAM)
     accessSetLanDetector(accessIsLanIp);   // Zugangsregel: LAN-Erkennung (AP/STA-Subnetz)
+#if WEIRDOS_FEATURE_IPSEC
     ipsecService.loadConfig();        // 8.1: IPsec-Config aus NVS (kein Autostart)
+#endif
     networkMode.begin();              // Betriebsart aus NVS laden (Phase 1: NUR laden, kein apply)
     wanService.begin();               // WAN-Internet-Check als Hintergrund-Task starten
     loadEnergyPrefs();
@@ -871,7 +884,19 @@ void setup() {
 // Video-Transport (Server > Video): genau EIN Stream-Server -- HTTP (Port 81: MJPEG + /video.mp4) ODER
 // RTSP (Port 554: /mjpeg + /h264) ODER keiner. Socket-Budget bleibt gleich (ein Listener + ein Socket je Client).
 void startVideoTransport() {
+#if WEIRDOS_FEATURE_RTSP
     if (streamType == "rtsp") { rtspServer.begin((uint16_t)rtspPort, rtspTransport == "udp"); return; }
+#else
+    // RTSP nicht im Build, aber per NVS gewaehlt: nicht stumm ohne Bild bleiben, sondern auf den
+    // HTTP-Stream zurueckfallen (sofern der im Build ist) -- der Nutzer sieht den Grund im Log.
+    if (streamType == "rtsp") {
+        Serial.println("Video-Server: RTSP gewaehlt, aber nicht im Build enthalten (WEIRDOS_FEATURE_RTSP=0) -> HTTP-Stream als Rueckfall.");
+#if WEIRDOS_FEATURE_VIDEO_HTTP
+        cameraServer.begin();
+#endif
+        return;
+    }
+#endif
     if (streamType == "http") { cameraServer.begin(); return; }
     Serial.println("Video-Server aus (Stream-Transport: aus).");
 }
@@ -912,10 +937,18 @@ void loop() {
     updateStatusLed();
     setupGuardTick();               // Captive-Portal-Sicherung (WAN-bewusst) + Werksreset (BOOT/GPIO0)
 
+#if WEIRDOS_FEATURE_WIREGUARD
     wireguardService.supervise();   // 7.9.1: VPN-Autostart + Selbstheilung (kein Start/Stop-Button)
+#endif
+#if WEIRDOS_FEATURE_IPSEC
     ipsecService.supervise();       // 8.1: IPsec-Autostart (No-op bis Runtime steht)
+#endif
+#if WEIRDOS_FEATURE_ROUTER
     zoneRuntimePoll();              // Netzzonen 0.5: Policies bei Registry-Aenderung neu kompilieren + installieren
+#endif
+#if WEIRDOS_FEATURE_RTSP
     rtspServer.poll();              // RTSP: ersten Client annehmen + Worker lazy starten (nur im RTSP-Modus aktiv)
+#endif
 
     // WICHTIG (Scheduling-Regression durch den WeirdHttpEsp-Flip): frueher blockierte
     // WeirdHttpArduino::loop() -> server.handleClient() den loopTask kurz. WeirdHttpEsp::loop()
@@ -2734,9 +2767,11 @@ void startWebServer() {
     g_web.route(HttpMethod::POST, "/dyndns-save",         requireSession(handleDyndnsSave,        AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/dyndns-status.json",  requireSession(handleDyndnsStatusJson,  AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/net-interfaces.json", requireSession(handleNetInterfacesJson, AuthFail::Json));
+#if WEIRDOS_FEATURE_ROUTER
     g_web.route(HttpMethod::GET,  "/zones-plan.json",     requireSession(handleZonesPlanJson, AuthFail::Json));   // Netzzonen 0.2: Planner-Vorschau (read-only)
     g_web.route(HttpMethod::GET,  "/zones.json",          requireSession(handleZonesJson, AuthFail::Json));       // Netzzonen 0.5: Policies + Plaene + installierter Zustand
     g_web.route(HttpMethod::POST, "/zones-policy",        requireSession(handleZonesPolicy, AuthFail::Json));     // Netzzonen Phase 1: Verbindung erlauben/trennen (dieselben Intents wie 'zones policy')
+#endif
     g_web.route(HttpMethod::GET,  "/diag-egress-test",    requireSession(handleDiagEgressTest,    AuthFail::Json));
     // MIGRIERT (Batch 4, WireGuard):
     g_web.route(HttpMethod::GET,  "/diag-wg-underlay", requireSession(handleDiagWgUnderlay, AuthFail::Json));

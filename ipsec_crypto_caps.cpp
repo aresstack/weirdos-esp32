@@ -1,5 +1,10 @@
 // ipsec_crypto_caps.cpp -- siehe Header. Reihenfolge = Anzeige-Reihenfolge (wie im LANCOM-Client).
+//
+// Baustein IPSEC (weirdos_features.h): bei WEIRDOS_FEATURE_IPSEC=0 bleibt nur der Stub am Ende
+// dieser Datei (leere Faehigkeitstabelle: nichts unterstuetzt, nichts auswaehlbar).
+#include "weirdos_features.h"
 #include "ipsec_crypto_caps.h"
+#if WEIRDOS_FEATURE_IPSEC
 
 //                id            label                              supp   iana iana2 bits
 static const IpsecAlgo kDh[] = {
@@ -176,3 +181,30 @@ String ipsecIntegName(uint16_t integ) {
     }
 }
 String ipsecDhName(uint16_t dh) { return "DH" + String(dh); }
+
+#else  // !WEIRDOS_FEATURE_IPSEC
+// Stub: IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)
+// Leere Faehigkeitstabelle: die Web-UI zeigt keine Algorithmen, PFS/EAP/Protokoll gelten als nicht
+// unterstuetzt, jede CSV-Pruefung lehnt ab, keine IANA-Namen.
+
+// Nullinitialisierter Platzhalter, damit ipsecAlgoTable() nie nullptr liefert (count bleibt 0).
+static const IpsecAlgo kAlgoNone[1] = {};
+
+const IpsecAlgo* ipsecAlgoTable(IpsecAlgoGroup, int& count) { count = 0; return kAlgoNone; }
+const IpsecAlgo* ipsecAlgoFind(IpsecAlgoGroup, const String&) { return nullptr; }
+const char*      ipsecAlgoGroupName(IpsecAlgoGroup) { return ""; }
+
+bool ipsecPfsSupported()                 { return false; }
+bool ipsecAuthSupported(const String&)   { return false; }
+bool ipsecProtoSupported(const String&)  { return false; }
+
+String ipsecAlgoCheck(IpsecAlgoGroup, const String&) { return "IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0)"; }
+bool   ipsecAlgoListHas(const String&, const char*) { return false; }
+int    ipsecAlgoResolve(IpsecAlgoGroup, const String&, const IpsecAlgo**, int, String& bad) { bad = ""; return 0; }
+
+String ipsecEncrName(uint16_t, uint16_t) { return ""; }
+String ipsecPrfName(uint16_t)            { return ""; }
+String ipsecIntegName(uint16_t)          { return ""; }
+String ipsecDhName(uint16_t)             { return ""; }
+
+#endif // WEIRDOS_FEATURE_IPSEC

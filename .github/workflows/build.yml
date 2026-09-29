@@ -9,14 +9,41 @@ permissions:
   contents: read
 
 jobs:
+  # Reine Logik ohne Hardware (Netzzonen-Planner/-Commit) wird auf dem Host gebaut
+  # und getestet -- deshalb bleiben zone_planner.cpp/zone_commit.cpp ungegated.
+  host-selftests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Zone planner + commit selftests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror -I. zone_planner.cpp tests/zone_planner_selftest.cpp -o zp_selftest && ./zp_selftest
+          g++ -std=c++11 -Wall -Wextra -Werror -I. zone_commit.cpp  tests/zone_commit_selftest.cpp  -o zc_selftest && ./zc_selftest
+
+  # Der Schnitt wird BEWIESEN: "full" muss dem bisherigen Build entsprechen,
+  # "lean" (schwere Bausteine auf 0) muss linken -- faellt lean, ist ein Stub
+  # unvollstaendig.
   arduino-cli:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - name: S3
+          - name: S3 full
             fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: ""
+            optional: false
+          - name: S3 lean (ohne VPN/Zonen/RTSP)
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: "-DWEIRDOS_FEATURE_WIREGUARD=0 -DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_ROUTER=0 -DWEIRDOS_FEATURE_RTSP=0"
+            optional: false
+          - name: P4 full (Target noch unbestaetigt)
+            fqbn: "esp32:esp32:esp32p4"
+            flags: ""
+            optional: true
+    continue-on-error: ${{ matrix.optional }}
     steps:
       - uses: actions/checkout@v4
       - uses: arduino/setup-arduino-cli@v2
@@ -31,4 +58,8 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.11
       - name: Compile ${{ matrix.name }}
-        run: arduino-cli compile --fqbn "${{ matrix.fqbn }}" --warnings default .
+        run: |
+          arduino-cli compile --fqbn "${{ matrix.fqbn }}" --warnings default \
+            --build-property "compiler.c.extra_flags=${{ matrix.flags }}" \
+            --build-property "compiler.cpp.extra_flags=${{ matrix.flags }}" \
+            .

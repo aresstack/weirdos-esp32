@@ -4,8 +4,11 @@
 // Speicher: alle grossen Arbeitsdaten liegen auf dem Heap (PSRAM), NICHT auf dem Stack -- der
 // loop-Task hat 16 KB und Planner-Attachments sind ~350 B je Eintrag. Nebenlaeufigkeit: Apply aus
 // loop() und aus der Konsole/Web laufen unter einem Mutex.
+// Baustein ROUTER (WEIRDOS_FEATURE_ROUTER): bei 0 bleibt nur der Stub am Dateiende (Header unveraendert).
 // ============================================================================
+#include "weirdos_features.h"
 #include "zone_runtime.h"
+#if WEIRDOS_FEATURE_ROUTER
 #include "zone_planner_adapter.h"
 #include "zone_lwip_hooks.h"
 #include "network_registry.h"     // netAttachmentById (Validierung der Intent-ids)
@@ -404,3 +407,30 @@ String zoneRuntimeJson() {
     j += "],\"lwip\":"; j += zoneLwipJson(); j += "}";
     return j;
 }
+
+#else
+// ============================================================================
+// Stub: Netzzonen nicht im Build enthalten (WEIRDOS_FEATURE_ROUTER=0).
+// Dieselben Symbole wie zone_runtime.h mit trivialen Koerpern: kein Zustand, kein NVS, keine Referenz auf
+// Adapter, lwIP-Hooks, Registry oder WireGuard -- damit wirft --gc-sections zone_planner.cpp/zone_commit.cpp
+// gleich mit heraus. Konsumenten (Konsole 'zones ...', /zones.json, WireGuard-Client-Konfig, Diagnose)
+// kompilieren und linken unveraendert und bekommen eine ehrliche "nicht im Build"-Antwort.
+// ============================================================================
+static const char* const kZoneNotBuilt = "Netzzonen nicht im Build enthalten (WEIRDOS_FEATURE_ROUTER=0)";
+
+void   zoneRuntimeBegin() {}
+void   zoneRuntimePoll()  {}
+bool   zoneRuntimeApply() { return false; }
+
+String zoneRuntimeSetPolicy(const String& src, const String& dst, const String& intentWord) { (void)src; (void)dst; (void)intentWord; return kZoneNotBuilt; }
+String zoneRuntimeDelPolicy(const String& src, const String& dst) { (void)src; (void)dst; return kZoneNotBuilt; }
+int    zoneRuntimeIntentCount() { return 0; }
+
+bool   zoneRuntimePlanFor(const String& src, const String& dst, String& mode, String& reason, String& natSource) { (void)src; (void)dst; (void)mode; (void)reason; (void)natSource; return false; }
+// Keine Zonen -> keine Ziel-Netze fuer WireGuard-AllowedIPs (Client-Konfig enthaelt nur Tunnel-IP + LAN-Gateway).
+String zoneRuntimeReachableCidrsFrom(const String& srcAttachment) { (void)srcAttachment; return ""; }
+String zoneRuntimeDesiredCidrsFrom(const String& srcAttachment)   { (void)srcAttachment; return ""; }
+
+String zoneRuntimeText() { return "Netzzonen: nicht im Build enthalten (WEIRDOS_FEATURE_ROUTER=0)"; }
+String zoneRuntimeJson() { return String("{\"builtIn\":false,\"error\":\"") + kZoneNotBuilt + "\",\"policyMode\":false,\"policies\":[]}"; }
+#endif // WEIRDOS_FEATURE_ROUTER

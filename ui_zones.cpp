@@ -8,10 +8,14 @@
 // Zustand (ROUTE/NAT/IMPOSSIBLE), der Grund, die Routen und bei NAT die SNAT-Adresse -- alles aus
 // /zones.json; die Netzsicht (Anbindungen, Adressen mit Herkunft) aus /net-interfaces.json.
 // Endpunkte: GET /zones.json, GET /net-interfaces.json, POST /zones-policy (src, dst, intent).
+// Baustein ROUTER (WEIRDOS_FEATURE_ROUTER): ohne ihn bleibt die Seite (Menuepunkt sichtbar) und nennt nur
+// den Grund -- keine Bedienelemente, kein Polling (Muster ui_bluetooth.cpp).
 // ============================================================================
+#include "weirdos_features.h"
 #include "web_ui.h"
 
 void renderZones(WeirdUiWriter& w) {
+#if WEIRDOS_FEATURE_ROUTER
     w.write(
         "<section id='tab-zones' class='tab-panel'>"
         "<h2 class='section-title'>Netzzonen</h2>"
@@ -82,4 +86,28 @@ void renderZones(WeirdUiWriter& w) {
         "var tick=function(){var s=document.getElementById('tab-zones');if(s&&s.classList.contains('active'))load();};setTimeout(tick,300);setInterval(tick,5000);"
         "})();</script>"
         "</section>");
+#else
+    // Netzzonen nicht im Build (WEIRDOS_FEATURE_ROUTER=0: Profil ohne Router oder Board ohne PSRAM). Panel
+    // bleibt sichtbar und nennt den Grund -- Menuepunkt nicht verstecken (Konsistenz mit IoT > Bluetooth).
+    // Bewusst OHNE die Bedien-IDs (zo-nets/zo-conns/zo-sw) und OHNE das Poll-Script: /zones.json und
+    // /zones-policy sind in diesem Build nicht registriert (Routen in der .ino ebenfalls unter
+    // WEIRDOS_FEATURE_ROUTER).
+    w.write(
+        "<section id='tab-zones' class='tab-panel'>"
+        "<h2 class='section-title'>Netzzonen</h2>"
+        "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;"
+        "border-radius:6px;margin:8px 0'><p><strong>Netzzonen sind in diesem Build nicht enthalten "
+        "(WEIRDOS_FEATURE_ROUTER=0).</strong> Der Baustein ROUTER (Weiterleitung, NAT und Verbindungsregeln "
+        "zwischen den Netzen und VPNs dieses Geraets) wurde beim Bauen abgewaehlt oder ist auf dieser Hardware "
+        "nicht moeglich (er braucht PSRAM). Ohne ihn gibt es keine konfigurierbaren Verbindungen (Zonen-Regeln) "
+        "zwischen den Netzen; die WireGuard-Option LAN-Gateway bleibt davon unberuehrt.</p></div>"
+        "<div class='fields-inactive'>"
+        "<p class='cam-hint'>Mit dem Baustein ROUTER bietet diese Seite: automatisch erkannte Netze, gerichtete "
+        "Verbindungen (Quelle &rarr; Ziel) als Schalter, den effektiven Zustand (geroutet / mit NAT / getrennt) "
+        "mit Grund sowie die AllowedIPs neuer WireGuard-Clients. Dieselben Regeln sind dann auf der Konsole als "
+        "<code>zones policy</code> sichtbar.</p>"
+        "</div>"
+        "</section>"
+    );
+#endif
 }

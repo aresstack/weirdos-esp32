@@ -932,7 +932,9 @@ static void cmdIpsec(const char* rest) {
     if (!strcmp(rest, "ikerekey"))   { ipsecService.requestIkeRekey(); Serial.println(F("IPsec: IKE-SA-Rekey geplant (loop-Task).")); return; }
     if (!strcmp(rest, "pfs on") || !strcmp(rest, "pfs off")) {   // Convenience-Alias: 'set pfs' + 'save' ueber den Feld-Layer
         IpsecConfig c = ipsecService.config();
-        String fe = ipsecFieldSet(c, *ipsecFieldFind("pfs"), !strcmp(rest, "pfs on") ? "1" : "0");
+        const IpsecFieldDef* pfsDef = ipsecFieldFind("pfs");   // nullptr, wenn IPsec nicht im Build ist (Stub-Tabelle leer)
+        if (!pfsDef) { Serial.println(F("IPsec nicht im Build enthalten (WEIRDOS_FEATURE_IPSEC=0).")); return; }
+        String fe = ipsecFieldSet(c, *pfsDef, !strcmp(rest, "pfs on") ? "1" : "0");
         String e = fe.length() ? fe : ipsecService.saveConfig(c, "", "");   // leere Secrets = behalten
         Serial.println(e.length() ? e : String("PFS ") + (c.pfs ? "AN" : "aus") + " gespeichert -- wirkt beim naechsten Verbinden ('ipsec connect'); Nachweis: 'ipsec rekey' -> IKE-Log 'rekey sent (PFS)' + Ping");
         return;
