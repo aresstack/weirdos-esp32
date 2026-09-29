@@ -477,6 +477,14 @@ void renderDienste(WeirdUiWriter& w) {
         "<section id='tab-dienste' class='tab-panel'>"
         "<div class='page-sub active' id='psub-svc-dyndns'>"
         "<h2 class='section-title'>DynDNS</h2>"
+#if !WEIRDOS_FEATURE_DYNDNS
+        // DynDNS nicht im Build: die /dyndns-*-Routen fehlen (in der .ino unter WEIRDOS_FEATURE_DYNDNS); das
+        // Formular bleibt sichtbar, weil dieselben Felder (Domain) auch fuer Zertifikate/ACME gelten.
+        "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;border-radius:6px;margin:8px 0'>"
+        "<p><strong>Der DynDNS-Updater ist in diesem Build nicht enthalten (WEIRDOS_FEATURE_DYNDNS=0).</strong> "
+        "Die Felder unten werden nicht an einen Anbieter gemeldet; Speichern und &quot;Jetzt aktualisieren&quot; "
+        "sind ohne Funktion.</p></div>"
+#endif
         "<form id='dyn-form'>"
         "<label class='check-row'>"
         "<input id='dyn-enabled' type='checkbox' name='enabled' value='1'"

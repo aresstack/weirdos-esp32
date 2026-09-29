@@ -68,10 +68,17 @@ void renderSystem(WeirdUiWriter& w) {
         "NICHT trennen oder neu laden.</strong> Benoetigt ein OTA-faehiges Partitionsschema "
         "(Arduino IDE: Tools -&gt; Partition Scheme mit OTA). Bei 'Huge App' ist kein OTA moeglich - "
         "dann weiter per USB flashen. Einstellungen/PIN bleiben erhalten.</p>"
+#if WEIRDOS_FEATURE_OTA
         "<form method='POST' action='/ota-update' enctype='multipart/form-data'>"
         "<input id='ota-file' name='firmware' type='file' accept='.bin'>"
         "<button class='connect-button' type='submit' style='margin-top:8px'>Firmware hochladen und flashen</button>"
         "</form>"
+#else
+        "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;border-radius:6px;margin:8px 0'>"
+        "<p><strong>Firmware-Update ueber die Weboberflaeche ist in diesem Build nicht enthalten "
+        "(WEIRDOS_FEATURE_OTA=0).</strong> Der Baustein OTA wurde beim Bauen abgewaehlt -- Updates laufen ueber "
+        "USB (Kamera-Tool / arduino-cli).</p></div>"
+#endif // WEIRDOS_FEATURE_OTA
         "</section>"
     );
     // --- Energiemonitor ---

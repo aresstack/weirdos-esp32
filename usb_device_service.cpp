@@ -16,7 +16,9 @@
 // Seit dem Schalterkasten ist der Key WEIRDOS_FEATURE_USB_DEVICE (weirdos_features.h); der alte
 // Name WEIRDOS_USB_DEVICE bleibt dort als Alias definiert, damit dieser Code unveraendert gilt.
 #include "weirdos_features.h"
-#if SOC_USB_OTG_SUPPORTED && defined(CONFIG_TINYUSB_ENABLED) && WEIRDOS_USB_DEVICE
+// UVC ist heute die einzige Geraeteklasse: ohne den Baustein UVC gibt es nichts zu exportieren, also
+// auch keinen TinyUSB-Start (USB_DEVICE = Stack, UVC = Kamera-Klasse; USB_NCM folgt als eigene Klasse).
+#if SOC_USB_OTG_SUPPORTED && defined(CONFIG_TINYUSB_ENABLED) && WEIRDOS_USB_DEVICE && WEIRDOS_FEATURE_UVC
 #define WEIRDOS_USBDEV_SUPPORTED 1
 #else
 #define WEIRDOS_USBDEV_SUPPORTED 0

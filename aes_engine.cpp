@@ -1,5 +1,10 @@
 // aes_engine.cpp -- siehe aes_engine.h.
-#include "aes_engine.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_CRYPTO_AES -- der Schalter dieses Bausteins
+#include "aes_engine.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_CRYPTO_AES
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_CRYPTO_AES=1)
+// ============================================================================
 #include "aes_soft.h"
 #include <esp_heap_caps.h>
 
@@ -101,3 +106,17 @@ String aesBench(int len, int rounds) {
     }
     return r;
 }
+#else
+// Stub (WEIRDOS_FEATURE_CRYPTO_AES=0): kein eigener AES-Treiber im Build (kein HW-Block-/DMA-Pfad,
+// kein Benchmark). IPSEC braucht CRYPTO_AES (Regel in weirdos_module_rules.h), also ruft hier nur
+// noch die Konsole ('ipsec aes'/'aesbench') an -- die Antworten nennen den Grund.
+static const char* kAesNotBuilt = "AES-Treiber nicht im Build enthalten (WEIRDOS_FEATURE_CRYPTO_AES=0)";
+void        aesEngineSetBackend(AesBackend b) { (void)b; }
+AesBackend  aesEngineBackend() { return AesBackend::SOFT; }
+const char* aesBackendName(AesBackend b) { (void)b; return kAesNotBuilt; }
+int aesEngineCbc(int enc, const uint8_t* key, size_t klen, const uint8_t iv[16],
+                 const uint8_t* in, size_t len, uint8_t* out) { (void)enc; (void)key; (void)klen; (void)iv; (void)in; (void)len; (void)out; return -1; }
+int aesEngineCbcVia(AesBackend b, int enc, const uint8_t* key, size_t klen, const uint8_t iv[16],
+                    const uint8_t* in, size_t len, uint8_t* out) { (void)b; (void)enc; (void)key; (void)klen; (void)iv; (void)in; (void)len; (void)out; return -1; }
+String aesBench(int len, int rounds) { (void)len; (void)rounds; return String(kAesNotBuilt); }
+#endif // WEIRDOS_FEATURE_CRYPTO_AES

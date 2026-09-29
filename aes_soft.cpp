@@ -1,6 +1,11 @@
 // aes_soft.cpp -- siehe aes_soft.h. Kanonischer AES (FIPS-197), abgeleitet aus der gemeinfreien
 // tiny-AES-Referenz; nur Software (kein Hardware-AES, keine DMA, kein Heap).
-#include "aes_soft.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_CRYPTO_AES -- der Schalter dieses Bausteins
+#include "aes_soft.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_CRYPTO_AES
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_CRYPTO_AES=1)
+// ============================================================================
 #include <string.h>
 
 static const uint8_t kSbox[256] = {
@@ -134,3 +139,9 @@ int aes_soft_cbc(int enc, const uint8_t* key, size_t klen, const uint8_t iv[16],
     }
     return 0;
 }
+#else
+// Stub (WEIRDOS_FEATURE_CRYPTO_AES=0): keine Software-AES-Referenz im Build. -1 = nicht verfuegbar
+// (kein Aufrufer ausserhalb von IPSEC/aes_engine, beide brauchen CRYPTO_AES).
+int aes_soft_cbc(int enc, const uint8_t* key, size_t klen, const uint8_t iv[16],
+                 const uint8_t* in, size_t len, uint8_t* out) { (void)enc; (void)key; (void)klen; (void)iv; (void)in; (void)len; (void)out; return -1; }
+#endif // WEIRDOS_FEATURE_CRYPTO_AES

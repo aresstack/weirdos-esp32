@@ -8,7 +8,12 @@
 // TLS ist insecure (VERIFY_NONE) - Verhalten wie der bisherige DynDNS-Pfad; eine
 // echte Zertifikats-Policy ist bewusst NICHT Teil dieser Stufe.
 // ============================================================================
-#include "http_transport.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_TLS_CLIENT -- der Schalter dieses Bausteins
+#include "http_transport.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_TLS_CLIENT
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_TLS_CLIENT=1) -- interface-gebundener HTTPS-Client (mbedTLS, Root-Bundle)
+// ============================================================================
 
 #include <cstring>
 #include <cstdio>
@@ -339,3 +344,27 @@ HttpResponse esp32BoundHttpGet(const HttpRequest& req) {
     vSemaphoreDelete(c.done);
     return c.res;
 }
+#else
+// ============================================================================
+// Stub (WEIRDOS_FEATURE_TLS_CLIENT=0): kein interface-gebundener HTTP(S)-Client im Build -- kein
+// mbedTLS-Client-Kontext, kein Root-CA-Bundle, kein Worker-Task. Jede Header-Funktion bleibt
+// definiert (ACME und DYNDNS brauchen TLS_CLIENT laut Regel; die Ipify-Diagnose in der .ino
+// bekommt eine ehrliche Fehlerantwort).
+// ============================================================================
+namespace {
+const char* kHttpClientNotBuilt = "HTTPS-Client nicht im Build enthalten (WEIRDOS_FEATURE_TLS_CLIENT=0)";
+class StubHttpTransport : public HttpTransport {
+public:
+    HttpResponse get(const HttpRequest& req) override {
+        (void)req;
+        HttpResponse r; r.status = 0; r.error = kHttpClientNotBuilt;
+        return r;
+    }
+};
+StubHttpTransport s_stubTransport;
+}  // namespace
+HttpTransport& esp32BoundHttpTransport() { return s_stubTransport; }
+void esp32BoundHttpTransportBegin() {}
+void esp32ApplyCryptoMemoryPolicy(bool usePsram) { (void)usePsram; }
+HttpResponse esp32BoundHttpGet(const HttpRequest& req) { return s_stubTransport.get(req); }
+#endif // WEIRDOS_FEATURE_TLS_CLIENT

@@ -62,7 +62,9 @@
 #include <HTTPClient.h>            // DynDNS-Update + Speedtest/Internet-Test (GET/POST) -- KEIN Funk, reitet auf lwIP (MODULES.md 7.4)
 #include <WiFiClientSecure.h>     // DynDNS ueber HTTPS (setInsecure, wie Router) -- Kompat-Alias fuer NetworkClientSecure, kein Funk
 #include <Preferences.h>
+#if WEIRDOS_FEATURE_OTA
 #include <Update.h>                // OTA-Firmware-Update ueber die Weboberflaeche
+#endif // WEIRDOS_FEATURE_OTA
 #include "camera_compat.h"   // esp_camera.h auf S3, inerte Shims auf P4/MIPI (kein DVP-Lib-Header)
 #include "esp_http_server.h"
 #include <esp_heap_caps.h>
@@ -1284,6 +1286,7 @@ void saveDyndnsPrefs() {
 // URL-Platzhalter wie im FritzBox-Feld: <ipaddr> <ip6addr> <username> <passwd>
 // <domain> (zusaetzlich <pass> als Alias).
 // -----------------------------------------------------------------------------
+#if WEIRDOS_FEATURE_DYNDNS   // Task-Zustand
 static TaskHandle_t  g_dyndnsTask     = NULL;
 static String        g_dyndnsLastIp   = "";        // zuletzt erfolgreich gemeldete IP
 static uint32_t      g_dyndnsLastOkMs = 0;         // millis der letzten OK-Meldung
@@ -1293,6 +1296,9 @@ static String        g_dyndnsEgressUsed = "";      // Default-netif-IP im Moment
 
 // Erzwingt beim naechsten Task-Durchlauf sofort ein Update (weckt den Task).
 void dyndnsForceNow() { g_dyndnsForce = true; }
+#else
+void dyndnsForceNow() {}   // kein DynDNS im Build: Aufrufer (PPP-Observer, Konsole, Datenlink) bleiben gueltig
+#endif // WEIRDOS_FEATURE_DYNDNS (Task-Zustand)
 
 // Aktuelle oeffentliche WAN-IPv4 - datenpfad-neutral. PPP: der ESP HAT die oeffentliche
 // IP direkt. ECM: der ESP-netif hat nur die private Modem-Subnetz-IP -> die oeffentliche
@@ -1303,6 +1309,7 @@ static String modemWanIp() {
     return pppIsUp() ? pppIpStr() : ecmWanIp();
 }
 
+#if WEIRDOS_FEATURE_DYNDNS   // Prewarm-/Fallback-Update-Pfad (HTTPClient)
 static void dyndnsApplyEgress();   // vorwaerts: unmittelbar vor dem Connect aufgerufen
 
 // Host-Teil einer http(s)-URL (fuer DNS-Prewarm).
@@ -1396,6 +1403,7 @@ static String dyndnsDoUpdate(const String& ip) {
     }
     return lastErr;
 }
+#endif // WEIRDOS_FEATURE_DYNDNS (Prewarm-/Fallback-Update-Pfad (HTTPClient))
 
 // WLAN-STA als Default-Route (Pendant zu ecmSetDefaultRoute fuer das WLAN-Egress).
 static void wlanSetDefaultRoute() {
@@ -1432,6 +1440,7 @@ static String dyndnsEgressIp() {
 // braucht KEIN Route-Pinning fuer HTTPS. Fuer DNS wird die Route noch gepinnt (s.u.), weil
 // ECM die Carrier-DNS global setzt; das ist eine spaetere 7.x-Haertung (gebundener Resolver).
 // dyndnsDoUpdate (a7bec98: Prewarm + HTTPS-Route-Pinning) bleibt als Fallback.
+#if WEIRDOS_FEATURE_DYNDNS   // gebundener Update-Pfad + Task
 static String dyndnsDoUpdateBound(const String& ip) {
     if (dyndnsUrl.length() == 0) return "Fehler: keine Update-URL";
     NetIface iface;
@@ -1526,6 +1535,9 @@ void startDyndns() {
     if (!g_dyndnsTask)
         xTaskCreatePinnedToCore(dyndnsTask, "dyndns", 16384, NULL, 3, &g_dyndnsTask, 0);
 }
+#else
+void startDyndns() { Serial.println("DynDNS nicht im Build enthalten (WEIRDOS_FEATURE_DYNDNS=0)."); }
+#endif // WEIRDOS_FEATURE_DYNDNS (gebundener Update-Pfad + Task)
 
 
 int cpuFreqForProfile(const String& p) {
@@ -2861,7 +2873,9 @@ void startWebServer() {
     g_web.routeUpload(HttpMethod::POST, "/settings-import", handleSettingsImportUpload, handleSettingsImportFinish);
 #endif // WEIRDOS_FEATURE_BACKUP
     g_web.route(HttpMethod::POST, "/periph-rescan", requireSession(handlePeriphRescan, AuthFail::Json));  // USB-Host on-demand
+#if WEIRDOS_FEATURE_OTA
     g_web.routeUpload(HttpMethod::POST, "/ota-update", handleOtaUpload, handleOtaFinish);
+#endif // WEIRDOS_FEATURE_OTA
     g_web.route(HttpMethod::GET, "/modem-status.json", requireSession(handleModemStatusJson, AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/modem-log",     requireSession(handleModemLog,     AuthFail::Json));
 #if WEIRDOS_FEATURE_MODEM
@@ -2874,8 +2888,10 @@ void startWebServer() {
     g_web.route(HttpMethod::GET,  "/modem-json",    requireSession(handleModemJson,    AuthFail::Json));
 #endif // WEIRDOS_FEATURE_MODEM
     // MIGRIERT (Batch 6, DynDNS/Netz-Diag):
+#if WEIRDOS_FEATURE_DYNDNS
     g_web.route(HttpMethod::POST, "/dyndns-save",         requireSession(handleDyndnsSave,        AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/dyndns-status.json",  requireSession(handleDyndnsStatusJson,  AuthFail::Json));
+#endif // WEIRDOS_FEATURE_DYNDNS
     g_web.route(HttpMethod::GET,  "/net-interfaces.json", requireSession(handleNetInterfacesJson, AuthFail::Json));
 #if WEIRDOS_FEATURE_ROUTER
     g_web.route(HttpMethod::GET,  "/zones-plan.json",     requireSession(handleZonesPlanJson, AuthFail::Json));   // Netzzonen 0.2: Planner-Vorschau (read-only)
@@ -2942,7 +2958,9 @@ void startWebServer() {
     g_web.route(HttpMethod::POST, "/bt-release",     requireSession(handleBtRelease,    AuthFail::Json));
 #endif
     g_web.route(HttpMethod::POST, "/wg-client-del", requireSession(handleWgClientDel, AuthFail::Json));   // 7.9.2: Client entfernen
+#if WEIRDOS_FEATURE_DYNDNS
     g_web.route(HttpMethod::POST, "/dyndns-update", requireSession(handleDyndnsUpdate, AuthFail::Json));
+#endif // WEIRDOS_FEATURE_DYNDNS
     g_web.route(HttpMethod::POST, "/energy-save",  requireSession(handleEnergySave,  AuthFail::Json));
     g_web.route(HttpMethod::POST, "/general-save",  requireSession(handleGeneralSave, AuthFail::Json));
 
@@ -5138,6 +5156,7 @@ void handlePeriphRescan(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     res.send(200, "application/json", String("{\"ok\":") + (ok ? "true" : "false") + ",\"msg\":\"" + escapeJson(msg) + "\"}");
 }
 
+#if WEIRDOS_FEATURE_OTA   // Upload-Handler
 // --- OTA-Firmware-Update ueber die Weboberflaeche (System -> Update) ---
 // Kein Brick-Risiko: schlaegt Update.begin/end fehl (z.B. kein OTA-Partitions-
 // schema), bleibt die laufende Firmware aktiv. Auth wird beim Upload-Start
@@ -5167,6 +5186,7 @@ void handleOtaUpload(WeirdHttpRequest& req, const WeirdHttpUpload& up) {
         }
     }
 }
+#endif // WEIRDOS_FEATURE_OTA (Upload-Handler)
 
 // Ereignis-Log als JSON (System -> Ereignisse), aeltestes zuerst.
 void handleEventsJson(WeirdHttpRequest& req, WeirdHttpResponse& res) {
@@ -5193,6 +5213,7 @@ void handleModemStatusJson(WeirdHttpRequest& req, WeirdHttpResponse& res) {
 
 
 // DynDNS-Einstellungen speichern (NVS). Der Update-Loop folgt mit PPP.
+#if WEIRDOS_FEATURE_DYNDNS   // Save-Handler
 void handleDyndnsSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     dyndnsEnabled = req.hasArg("enabled");
 
@@ -5226,6 +5247,7 @@ void handleDyndnsSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     resNoCache(res);
     res.send(200, "application/json", "{\"ok\":true,\"msg\":\"DynDNS gespeichert.\"}");
 }
+#endif // WEIRDOS_FEATURE_DYNDNS (Save-Handler)
 
 
 // DynDNS-Status fuer die Oberflaeche (Freigaben -> DynDNS).
@@ -5948,6 +5970,7 @@ void handleZonesPolicy(WeirdHttpRequest& req, WeirdHttpResponse& res) {
 }
 
 
+#if WEIRDOS_FEATURE_DYNDNS   // Status/Update-Handler
 void handleDyndnsStatusJson(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     (void)req;
     String j = "{";
@@ -5977,6 +6000,7 @@ void handleDyndnsUpdate(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     resNoCache(res);
     res.send(200, "application/json", "{\"ok\":true,\"msg\":\"Update angestossen ...\"}");
 }
+#endif // WEIRDOS_FEATURE_DYNDNS (Status/Update-Handler)
 
 
 // Energie-Einstellungen speichern: CPU-Profil (sofort wirksam) + WLAN-Fallback-Flag.

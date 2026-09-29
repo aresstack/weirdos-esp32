@@ -79,7 +79,7 @@ ohne Implementierung (Vorgabe 0).
 | `ROUTER` | Netzzonen: Forwarding, NAT, Policies, lwIP-Hooks | NET, **PSRAM** | **wired** |
 | `WIREGUARD` | WireGuard Server/Client (eigene Krypto vendored) | NET | **wired** |
 | `IPSEC` | IKEv2/IPsec-Client (WeirdIKE) | NET, CRYPTO_AES, **PSRAM** | **wired** |
-| `DYNDNS` | DynDNS-Updater | NET, TLS_CLIENT | declared |
+| `DYNDNS` | DynDNS-Updater | NET, TLS_CLIENT | **wired** |
 | `NETSCAN` | Ping/Portscan/Sniff/Kanalscan | NET | **wired** |
 
 ### 4.3 Video-Ausgang (alle brauchen `CAMERA`)
@@ -89,7 +89,7 @@ ohne Implementierung (Vorgabe 0).
 | `VIDEO_HTTP` | MJPEG-Streamserver (Port 81) + `/video.mp4`. Das Einzelbild `/capture` gehört zu CAMERA (+HTTP), damit auch ein RTSP-only-Gerät Snapshots liefert | HTTP | **wired** |
 | `RTSP` | RTSP/RTP-Server (MJPEG; H.264-Mount mit H264) | NET | **wired** |
 | `H264` | HW-Encoder + PPA + fMP4 + interne RAM-Reserve (die Boot-Reserve entfällt damit auch auf dem S3, der keinen Encoder hat) | P4 | **wired** |
-| `UVC` | Webcam am PC | USB_DEVICE | declared (heute: Testbild; echte Kamera folgt) |
+| `UVC` | Webcam am PC | USB_DEVICE | **wired** (heute: Testbild; echte Kamera folgt) |
 
 ### 4.4 Bedienung / Verwaltung
 
@@ -98,12 +98,12 @@ ohne Implementierung (Vorgabe 0).
 | `HTTP` | HTTP-Server-Transport (`weird_http_esp`) + Auth | NET | declared |
 | `WEBUI` | Weboberfläche (Seiten + Assets) | HTTP | declared |
 | `CONSOLE` | serielle Konsole (Kontrollpfad ohne Netz) | — | **wired** |
-| `OTA` | Firmware-Update per Web | HTTP | declared |
+| `OTA` | Firmware-Update per Web | HTTP | **wired** |
 | `BACKUP` | NVS-Sicherung Export/Import | — | **wired** |
 | `TLS_SERVER` | HTTPS + Self-Signed + Zertifikatsspeicher | HTTP | **wired** |
-| `TLS_CLIENT` | HTTPS-Client | NET | declared |
+| `TLS_CLIENT` | HTTPS-Client | NET | **wired** |
 | `ACME` | Let's-Encrypt-Client | TLS_SERVER, TLS_CLIENT | **wired** |
-| `CRYPTO_AES` | eigener AES-Treiber (Zulieferer für IPSEC) | — | declared |
+| `CRYPTO_AES` | eigener AES-Treiber (Zulieferer für IPSEC) | — | **wired** |
 
 ### 4.5 Zukunfts-Slots
 
