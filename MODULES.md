@@ -193,7 +193,7 @@ Was sich beim Verdrahten als Regel bewährt hat:
 - **Pure Zuordnungen vor den Schalter** (`modeId()`, `systemClockIso()`,
   `serialConsoleBaud()`): einmal definiert, kein Stub-Duplikat, das auseinanderläuft.
 
-## 8. Messungen (CI, esp32-Core 3.3.11, Stand Lauf 15 = Commit f4bb677)
+## 8. Messungen (CI, esp32-Core 3.3.11, Stand Lauf 15 = Commit f4bb677; webcam-only aus Lauf 18 = c0505d7)
 
 Was der Schnitt auf dem Gerät tatsächlich spart. „statisches RAM" = globale
 Variablen (`.data`+`.bss`), also das, was dem Heap fehlt, bevor irgendetwas läuft.
@@ -214,7 +214,7 @@ Stub unvollständig oder ein Baustein leckt in einen anderen.
 | S3 slim-control | TLS_SERVER, ACME, TLS_CLIENT, DYNDNS, OTA, CONSOLE, NETSCAN, BACKUP, CRYPTO_AES, IPSEC | 2 138 558 B (63 %) | 79 884 B |
 | S3 headless | HTTP, WEBUI, VIDEO_HTTP, OTA, TLS_SERVER, ACME | 1 734 058 B (51 %) | 96 936 B |
 | S3 webcam (USB-OTG) | MODEM, USB_HOST; **USB_DEVICE + UVC auf 1** | 2 573 478 B (76 %) | 130 836 B |
-| S3 webcam-only | alles außer CAMERA, USB_DEVICE, UVC (auch NET) | WEBCAM_ONLY_FLASH | WEBCAM_ONLY_RAM |
+| S3 webcam-only | alles außer CAMERA, USB_DEVICE, UVC (auch NET) | **527 463 B (15 %)** | 77 256 B |
 
 Was die Zeilen sagen:
 
@@ -236,6 +236,11 @@ Was die Zeilen sagen:
   SIM, USB-Host-Recovery).
 - **USB-Webcam (USB_DEVICE + UVC an):** +79 KB Flash und +32 KB statisches RAM gegenüber no-modem — die
   TinyUSB-Puffer, die der Baustein USB_DEVICE deshalb nie per Vorgabe mitbringt.
+- **IP-Stack weg (webcam-only):** das Profil „USB-Webcam" wortwörtlich — CAMERA, USB_DEVICE,
+  UVC und sonst nichts. **527 KB statt 2 573 KB Flash (−80 %), 77 KB statt 131 KB statisches
+  RAM** gegenüber der Webcam mit vollem Netz-Unterbau; gegenüber dem Vollausbau fehlen
+  2,1 MB. Kein lwIP, kein esp_netif, kein mbedTLS, kein Funk-Blob — genau der Beweis, dass
+  der Kern ohne Netz auskommt und NET ein Baustein ist, kein Fundament des Kerns.
 - **H264 auf dem S3:** kaum Flash, aber die **Boot-Reserve von ~172 KB internem RAM**
   für einen Encoder, den der S3 nicht hat, entfällt (Heap, nicht statisches RAM).
 
