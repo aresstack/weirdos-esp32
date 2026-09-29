@@ -4,6 +4,8 @@
 // Hardware-Grenze steht ehrlich im Panel: S3 = nur BLE, kein Classic/Audio; P4 = gar kein Funk.
 // Das Panel wird IMMER gerendert (Menuepunkt IoT > Bluetooth bleibt sichtbar).
 // ============================================================================
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WEBUI -- Seiten nur mit Weboberflaeche
+#if WEIRDOS_FEATURE_WEBUI
 #include "web_ui.h"
 
 void renderBluetooth(WeirdUiWriter& w) {
@@ -78,3 +80,10 @@ void renderBluetooth(WeirdUiWriter& w) {
     );
 #endif
 }
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): kein Seiteninhalt, nur die Renderer-Signaturen,
+// damit web_ui.cpp (Seitentabelle) und Nachbarseiten unveraendert linken. Der HTTP-Server (Baustein HTTP)
+// beantwortet dann PIN-Gate + JSON-API; sendAppPage() nennt den Grund.
+#include "web_ui.h"
+void renderBluetooth(WeirdUiWriter& w) { (void)w; }
+#endif // WEIRDOS_FEATURE_WEBUI

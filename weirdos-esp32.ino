@@ -314,7 +314,9 @@ struct ScannedNetwork {
 // Der globale Arduino-WebServer ist mit dem WeirdHttpEsp-Flip entfallen -- die
 // Control-Plane laeuft komplett ueber g_web (esp_http_server), Port 80, HTTP.
 // HTTPS folgt auf demselben Esp-Backend als eigener Schritt. Muss vor loop() stehen.
+#if WEIRDOS_FEATURE_HTTP   // ohne Server keine Instanz (globaler Konstruktor wuerde weird_http_esp + esp_http_server festhalten)
 WeirdHttpEsp g_web(80, false);
+#endif // WEIRDOS_FEATURE_HTTP (ohne Server keine Instanz (globaler Konstruktor wuerde weird_http_esp + esp_http_server festhalten))
 // Port-80-Hilfsserver, NUR wenn die Verwaltung auf HTTPS:443 laeuft: beantwortet die ACME-http-01-
 // Challenge (/.well-known/acme-challenge/<token>, PUBLIC) und leitet alles andere per 301 auf
 // https:// um. Eigener Control-Port 32772, kleiner Stack (kein App-Render).
@@ -985,7 +987,9 @@ void loop() {
     }
 #endif
 
+#if WEIRDOS_FEATURE_HTTP
     g_web.loop();   // esp_http_server hat eigene Tasks -> no-op (nur Vertrag erfuellt)
+#endif // WEIRDOS_FEATURE_HTTP
 
 #if WEIRDOS_FEATURE_WIFI
     updateWifiConnection();
@@ -2749,6 +2753,7 @@ void handleRedirectProbe(WeirdHttpRequest&, WeirdHttpResponse&);
 void handleUnknownRequest(WeirdHttpRequest&, WeirdHttpResponse&);
 void handleVideoConfig(WeirdHttpRequest&, WeirdHttpResponse&);
 
+#if WEIRDOS_FEATURE_HTTP   // Composition Root der Control-Plane: ALLE Routen
 void startWebServer() {
     // Header-Sammeln entfaellt: der esp_http_server-Adapter liest jeden Header direkt
     // (EspRequest::header via httpd_req_get_hdr_value_str). Kein collectHeaders noetig.
@@ -3041,9 +3046,13 @@ void startWebServer() {
     if (!g_web.running())   // vorher stand hier ein nacktes else: "FAILED" auch bei laufendem HTTP-Server (irrefuehrend)
         Serial.printf("Control-plane FAILED to start (err=0x%x)\n", (unsigned)g_web.lastError());
 }
+#else
+void startWebServer() { Serial.println("HTTP-Server nicht im Build enthalten (WEIRDOS_FEATURE_HTTP=0): keine Weboberflaeche, keine JSON-API -- Bedienung ueber die Konsole."); }
+#endif // WEIRDOS_FEATURE_HTTP (Composition Root der Control-Plane: ALLE Routen)
 
 
 #if WEIRDOS_FEATURE_WIFI
+#if WEIRDOS_FEATURE_HTTP   // Captive-Probes brauchen den Server
 void registerCaptivePortalEndpoints() {
     // SECURITY-AUDIT (Phase 8): ALLE Routen hier bleiben BEWUSST public (kein
     // requireSession). Sie sind reine OS-Konnektivitaets-/Captive-Probes (Android 204,
@@ -3071,6 +3080,7 @@ void registerCaptivePortalEndpoints() {
     g_web.route(HttpMethod::GET, "/canonical.html", handleRedirectProbe);
     g_web.route(HttpMethod::GET, "/success.txt",    handleRedirectProbe);
 }
+#endif // WEIRDOS_FEATURE_HTTP (Captive-Probes brauchen den Server)
 
 
 void handleRedirectProbe(WeirdHttpRequest& req, WeirdHttpResponse& res) {

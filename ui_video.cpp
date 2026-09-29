@@ -6,6 +6,8 @@
 //   Diagnose > Video: das Livebild (MJPEG/Einzelbilder/H.264 mit Codec-/Aufloesungswahl) --
 //   renderVideoLive(), eingehaengt in ui_diag.cpp. Der Stream laeuft nur, solange diese Seite
 //   sichtbar ist (videoVisible() in web_ui_assets.cpp).
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WEBUI -- Seiten nur mit Weboberflaeche
+#if WEIRDOS_FEATURE_WEBUI
 #include "web_ui.h"
 #include "h264_guard.h"   // Boot-Reserve (Guard): konfigurierte/gehaltene Groesse fuer den Stream-Tab
 #include "camera_manager.h" // cameraManager.currentMode(): aktueller Sensor-Modus (PPA skaliert nur herunter)
@@ -311,3 +313,11 @@ void renderVideoServer(WeirdUiWriter& w) {
         "})();</script>"
     );
 }
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): kein Seiteninhalt, nur die Renderer-Signaturen,
+// damit web_ui.cpp (Seitentabelle) und Nachbarseiten unveraendert linken. Der HTTP-Server (Baustein HTTP)
+// beantwortet dann PIN-Gate + JSON-API; sendAppPage() nennt den Grund.
+#include "web_ui.h"
+void renderVideoLive(WeirdUiWriter& w) { (void)w; }
+void renderVideoServer(WeirdUiWriter& w) { (void)w; }
+#endif // WEIRDOS_FEATURE_WEBUI

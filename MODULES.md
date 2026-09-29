@@ -95,8 +95,8 @@ ohne Implementierung (Vorgabe 0).
 
 | Key | Baustein | Braucht | Status |
 |---|---|---|---|
-| `HTTP` | HTTP-Server-Transport (`weird_http_esp`) + Auth | NET | declared |
-| `WEBUI` | Weboberfläche (Seiten + Assets) | HTTP | declared |
+| `HTTP` | HTTP-Server-Transport (`weird_http_esp`) + Auth | NET | **wired** |
+| `WEBUI` | Weboberfläche (Seiten + Assets) | HTTP | **wired** |
 | `CONSOLE` | serielle Konsole (Kontrollpfad ohne Netz) | — | **wired** |
 | `OTA` | Firmware-Update per Web | HTTP | **wired** |
 | `BACKUP` | NVS-Sicherung Export/Import | — | **wired** |

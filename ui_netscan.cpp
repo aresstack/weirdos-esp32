@@ -8,6 +8,8 @@
 // Tab "Funk" = WLAN-only (Passiv-Monitor, Kanal-Uebersicht, Tiefen-Scan) -- bei WLAN=aus ausgegraut.
 // Logik: net_scan.*, Endpoints in esp32-modem-host.ino (/net-*). Konsole: 'net ...' (gleiche API).
 // ============================================================================
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WEBUI -- Seiten nur mit Weboberflaeche
+#if WEIRDOS_FEATURE_WEBUI
 #include "weirdos_features.h"   // WEIRDOS_FEATURE_NETSCAN
 #include "web_ui.h"
 
@@ -291,3 +293,10 @@ void renderNetScanBody(WeirdUiWriter& w, bool wifiOn, bool wifiHw) {
     );
 }
 #endif // WEIRDOS_FEATURE_NETSCAN
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): kein Seiteninhalt, nur die Renderer-Signaturen,
+// damit web_ui.cpp (Seitentabelle) und Nachbarseiten unveraendert linken. Der HTTP-Server (Baustein HTTP)
+// beantwortet dann PIN-Gate + JSON-API; sendAppPage() nennt den Grund.
+#include "web_ui.h"
+void renderNetScanBody(WeirdUiWriter& w, bool wifiOn, bool wifiHw) { (void)w; (void)wifiOn; (void)wifiHw; }
+#endif // WEIRDOS_FEATURE_WEBUI

@@ -5,6 +5,8 @@
 // dazu, die IA fruehzeitig sichtbar zu machen, ohne Hardware-/Geraetelogik zu
 // erfinden. Spaeter bekommt jeder Bereich seine eigene ui_*.cpp.
 // ============================================================================
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WEBUI -- Seiten nur mit Weboberflaeche
+#if WEIRDOS_FEATURE_WEBUI
 #include "web_ui.h"
 #include "peripheral_registry.h"
 #include "usb_device_service.h"   // "Bereitstellen an USB": Port-Wahl + Export je Geraet (UVC heute, UAC/NCM vorgesehen)
@@ -157,3 +159,10 @@ void renderPeripherie(WeirdUiWriter& w) {
 
     w.write("</section>");
 }
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): kein Seiteninhalt, nur die Renderer-Signaturen,
+// damit web_ui.cpp (Seitentabelle) und Nachbarseiten unveraendert linken. Der HTTP-Server (Baustein HTTP)
+// beantwortet dann PIN-Gate + JSON-API; sendAppPage() nennt den Grund.
+#include "web_ui.h"
+void renderPeripherie(WeirdUiWriter& w) { (void)w; }
+#endif // WEIRDOS_FEATURE_WEBUI

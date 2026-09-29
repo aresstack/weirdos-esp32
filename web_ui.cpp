@@ -150,6 +150,7 @@ void sendPinSetupGate(WeirdHttpResponse& res, const String& error) {
     res.end();
 }
 
+#if WEIRDOS_FEATURE_WEBUI   // Seitengeruest + Assets (Seitentabelle referenziert alle Renderer)
 String createStatusBlock() {
     String html;
     html.reserve(512);
@@ -320,7 +321,33 @@ void sendAppPage(WeirdHttpResponse& res, const String& page) {
     res.end();
     g_httpRenderStage = 99;   // 99 = App-Seite komplett gesendet (kein Crash im Render)
 }
-
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): keine Seitentabelle, keine Renderer-Aufrufe,
+// keine App-Assets. PIN-Gate, Setup-Gate und die Format-Helfer bleiben (JSON-API + Anmeldung laufen
+// weiter); die Startseite nennt den Grund.
+String createStatusBlock() { return String(); }
+const char* uiAssetVersion() { return "0"; }
+void sendAppCss(WeirdHttpResponse& res) { if (res.beginChunked(200, "text/css; charset=utf-8")) res.end(); }
+void sendAppJs(WeirdHttpResponse& res)  { if (res.beginChunked(200, "application/javascript; charset=utf-8")) res.end(); }
+void sendAppPage(WeirdHttpResponse& res, const String& page) {
+    (void)page;
+    uiNoCache(res);
+    if (!res.beginChunked(200, "text/html; charset=utf-8")) return;
+    WeirdUiWriter w(res);
+    w.write("<!DOCTYPE html><html lang='de'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'><title>WeirdOS</title>");
+    w.writeProgmem(PAGE_STYLE);
+    w.write("</head><body><div class='shell'><main class='content'>"
+            "<h2 class='section-title'>WeirdOS</h2>"
+            "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;border-radius:6px;margin:8px 0'>"
+            "<p><strong>Die Weboberflaeche ist in diesem Build nicht enthalten (WEIRDOS_FEATURE_WEBUI=0).</strong> "
+            "Der HTTP-Server laeuft mit PIN-Anmeldung und JSON-Schnittstelle (z. B. <code>/status.json</code>, "
+            "<code>/sysinfo.json</code>, <code>/capture</code>); eingerichtet wird ueber die serielle Konsole oder "
+            "mit einem Build, der den Baustein WEBUI enthaelt.</p></div>"
+            "</main></div></body></html>");
+    res.end();
+}
+#endif // WEIRDOS_FEATURE_WEBUI
 
 void writeSecretField(WeirdUiWriter& w, const char* id, const char* name, const String& label,
                       const char* tip, bool isSet, size_t len, const char* unsetHint) {

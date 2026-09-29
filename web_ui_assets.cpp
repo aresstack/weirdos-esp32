@@ -96,6 +96,7 @@ input:focus{outline:2px solid #2f6fd0;outline-offset:1px;border-color:#2f6fd0}
 .status-link a{color:#2f6fd0}
 </style>)CSS";
 
+#if WEIRDOS_FEATURE_WEBUI
 const char APP_STYLE[] PROGMEM = R"CSS(<style>
 .tabs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;
   border-bottom:1px solid #d7dbe0}
@@ -2215,3 +2216,9 @@ fetch('/settings-import',{method:'POST',cache:'no-store',body:fd}).then(function
 })();
 })();
 </script>)JS";
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): App-CSS/-JS entfallen (das ist der groesste Flash-
+// Posten der Bedienung); PAGE_STYLE oben bleibt fuer PIN-Gate und Setup-Seiten.
+const char APP_STYLE[]  PROGMEM = "";
+const char APP_SCRIPT[] PROGMEM = "";
+#endif // WEIRDOS_FEATURE_WEBUI

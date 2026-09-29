@@ -1,4 +1,6 @@
 // ui_diag.cpp -- Content: Oberpunkt "Diagnose": System (Ereignisse/Heap-Map), Modem, Netzwerk, Video
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WEBUI -- Seiten nur mit Weboberflaeche
+#if WEIRDOS_FEATURE_WEBUI
 #include "web_ui.h"
 #include "wifi_caps.h"   // wifiStackShouldInit()/wifiPresent(): der Netzwerk-Scan braucht den WLAN-Stack
 
@@ -287,3 +289,10 @@ void renderDiag(WeirdUiWriter& w) {
     renderVideoLive(w);
     w.write("</section>");
 }
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): kein Seiteninhalt, nur die Renderer-Signaturen,
+// damit web_ui.cpp (Seitentabelle) und Nachbarseiten unveraendert linken. Der HTTP-Server (Baustein HTTP)
+// beantwortet dann PIN-Gate + JSON-API; sendAppPage() nennt den Grund.
+#include "web_ui.h"
+void renderDiag(WeirdUiWriter& w) { (void)w; }
+#endif // WEIRDOS_FEATURE_WEBUI

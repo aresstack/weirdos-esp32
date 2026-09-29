@@ -2,6 +2,8 @@
 // jetzt unter Diagnose > Netzwerk (ui_netscan.cpp) -- reine Diagnose, keine LAN-Einstellung.
 // Baustein WIFI (WEIRDOS_FEATURE_WIFI): ohne ihn bleibt die Seite (Menuepunkt sichtbar) und nennt nur
 // den Grund -- keine Formulare, keine Bedien-IDs, kein /scan-/status.json-Polling (Muster ui_bluetooth.cpp).
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WEBUI -- Seiten nur mit Weboberflaeche
+#if WEIRDOS_FEATURE_WEBUI
 #include "weirdos_features.h"
 #include "web_ui.h"
 #include "network_mode.h"   // AP-Kanal-Policy (apChannelPol/apChannel) fuer das Kanal-Dropdown
@@ -236,3 +238,10 @@ void renderWlan(WeirdUiWriter& w) {
     );
 #endif
 }
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): kein Seiteninhalt, nur die Renderer-Signaturen,
+// damit web_ui.cpp (Seitentabelle) und Nachbarseiten unveraendert linken. Der HTTP-Server (Baustein HTTP)
+// beantwortet dann PIN-Gate + JSON-API; sendAppPage() nennt den Grund.
+#include "web_ui.h"
+void renderWlan(WeirdUiWriter& w) { (void)w; }
+#endif // WEIRDOS_FEATURE_WEBUI

@@ -2,6 +2,8 @@
 //   LAN-seitige Grundeinstellung: Router-LAN-Subnetz (frueher in der Betriebsart).
 //   Die Captive-DNS-Umleitung ist als Sicherheitsfunktion nach Einrichtung > Setup-Portal
 //   gewandert. Persistenz ueber NetworkModeConfig; Plain-POST -> /lan-general-save.
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WEBUI -- Seiten nur mit Weboberflaeche
+#if WEIRDOS_FEATURE_WEBUI
 #include "web_ui.h"
 #include "network_mode.h"
 
@@ -28,3 +30,10 @@ void renderLanGeneral(WeirdUiWriter& w) {
         "</form>"
         "</section>");
 }
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): kein Seiteninhalt, nur die Renderer-Signaturen,
+// damit web_ui.cpp (Seitentabelle) und Nachbarseiten unveraendert linken. Der HTTP-Server (Baustein HTTP)
+// beantwortet dann PIN-Gate + JSON-API; sendAppPage() nennt den Grund.
+#include "web_ui.h"
+void renderLanGeneral(WeirdUiWriter& w) { (void)w; }
+#endif // WEIRDOS_FEATURE_WEBUI

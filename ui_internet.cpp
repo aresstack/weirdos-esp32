@@ -3,6 +3,8 @@
 //   DNS-Server, Frequenzen). Modem-STATUS liegt in der Uebersicht (ui_overview.cpp),
 //   Modem-DIAGNOSE (Funkwerte, Netzliste, SIM, Pipeline, AT-Konsole) unter Diagnose > Modem
 //   (ui_diag.cpp). Online-Monitor ebenfalls in der Uebersicht.
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WEBUI -- Seiten nur mit Weboberflaeche
+#if WEIRDOS_FEATURE_WEBUI
 #include "web_ui.h"
 #include "peripheral_registry.h"   // periphModemPort + periphAvailablePorts (Anschluss-Dropdown)
 #include "wireguard_service.h"     // WireGuard-Backend-Status (Stufe 7.3)
@@ -1296,3 +1298,13 @@ void renderVpnClient(WeirdUiWriter& w) {
     }
     w.write("</section>");   // /tab-vpn-cli
 }
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): kein Seiteninhalt, nur die Renderer-Signaturen,
+// damit web_ui.cpp (Seitentabelle) und Nachbarseiten unveraendert linken. Der HTTP-Server (Baustein HTTP)
+// beantwortet dann PIN-Gate + JSON-API; sendAppPage() nennt den Grund.
+#include "web_ui.h"
+void renderInternet(WeirdUiWriter& w) { (void)w; }
+void renderDienste(WeirdUiWriter& w) { (void)w; }
+void renderVpnServer(WeirdUiWriter& w) { (void)w; }
+void renderVpnClient(WeirdUiWriter& w) { (void)w; }
+#endif // WEIRDOS_FEATURE_WEBUI

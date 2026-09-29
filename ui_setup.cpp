@@ -6,6 +6,8 @@
 //   Persistenz ueber setup_guard (NVS "setup"); die Laufzeit-Wirkung liegt im Sketch.
 //   UART: die serielle Bedien-Konsole (serial_console.*) -- der Weg, das Geraet OHNE WLAN
 //   (P4) zu konfigurieren: Befehlsliste + Baudrate (NVS, ab Neustart).
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WEBUI -- Seiten nur mit Weboberflaeche
+#if WEIRDOS_FEATURE_WEBUI
 #include "web_ui.h"
 #include "setup_guard.h"
 #include "serial_console.h"   // Befehlsliste + Baudrate + Schnittstellenname (eine Quelle)
@@ -156,3 +158,10 @@ void renderSetupPortal(WeirdUiWriter& w) {
 
         "</section>");
 }
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): kein Seiteninhalt, nur die Renderer-Signaturen,
+// damit web_ui.cpp (Seitentabelle) und Nachbarseiten unveraendert linken. Der HTTP-Server (Baustein HTTP)
+// beantwortet dann PIN-Gate + JSON-API; sendAppPage() nennt den Grund.
+#include "web_ui.h"
+void renderSetupPortal(WeirdUiWriter& w) { (void)w; }
+#endif // WEIRDOS_FEATURE_WEBUI

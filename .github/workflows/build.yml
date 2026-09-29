@@ -65,6 +65,18 @@ jobs:
             fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
             flags: "-DWEIRDOS_FEATURE_TLS_SERVER=0 -DWEIRDOS_FEATURE_ACME=0 -DWEIRDOS_FEATURE_TLS_CLIENT=0 -DWEIRDOS_FEATURE_DYNDNS=0 -DWEIRDOS_FEATURE_OTA=0 -DWEIRDOS_FEATURE_CONSOLE=0 -DWEIRDOS_FEATURE_NETSCAN=0 -DWEIRDOS_FEATURE_BACKUP=0 -DWEIRDOS_FEATURE_CRYPTO_AES=0 -DWEIRDOS_FEATURE_IPSEC=0"
             optional: false
+          # Headless (RTSP-Kamera nur mit Konsole): KEIN HTTP-Server -> keine Weboberflaeche, keine JSON-API,
+          # kein OTA/HTTPS/ACME/MJPEG (Regeln). Beweist den HTTP-Schnitt: g_web, startWebServer() und damit
+          # weird_http_esp/esp_http_server/weird_auth/alle Seiten verschwinden per gc-sections.
+          - name: S3 headless (ohne HTTP)
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: "-DWEIRDOS_FEATURE_HTTP=0 -DWEIRDOS_FEATURE_WEBUI=0 -DWEIRDOS_FEATURE_VIDEO_HTTP=0 -DWEIRDOS_FEATURE_OTA=0 -DWEIRDOS_FEATURE_TLS_SERVER=0 -DWEIRDOS_FEATURE_ACME=0"
+            optional: false
+          # API-only: HTTP-Server mit PIN-Gate und JSON-Routen, aber ohne Seiten/Assets (WEBUI=0).
+          - name: S3 api-only (ohne WEBUI)
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: "-DWEIRDOS_FEATURE_WEBUI=0"
+            optional: false
           # Die USB-Webcam: TinyUSB-Geraetestack (USBMode=default = USB-OTG statt HW-CDC) + UVC-Klasse.
           # Der Stack kostet ~48 KB statisches RAM -- deshalb ein eigener Baustein, nie Default.
           # Erst optional (der Pfad wurde in der CI noch nie gebaut), nach dem ersten gruenen Lauf blockierend.

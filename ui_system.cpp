@@ -1,6 +1,8 @@
 // ui_system.cpp -- Content: Oberpunkt "System"
 //   Seiten: Allgemein, Update, Energiemonitor, Sicherheit (PIN+WAN), Sicherung
 //   (Ereignisse: Diagnose, ui_diag.cpp)
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WEBUI -- Seiten nur mit Weboberflaeche
+#if WEIRDOS_FEATURE_WEBUI
 #include "web_ui.h"
 #include "acme_client.h"   // Zertifikat-Abschnitt (System > Sicherheit): Let's-Encrypt-Config
 #include "cert_store.h"    // Zertifikatsherkunft (self-signed / eigenes / Let's Encrypt)
@@ -401,3 +403,10 @@ void renderSystem(WeirdUiWriter& w) {
         "</section>"
     );
 }
+#else
+// Weboberflaeche nicht im Build (WEIRDOS_FEATURE_WEBUI=0): kein Seiteninhalt, nur die Renderer-Signaturen,
+// damit web_ui.cpp (Seitentabelle) und Nachbarseiten unveraendert linken. Der HTTP-Server (Baustein HTTP)
+// beantwortet dann PIN-Gate + JSON-API; sendAppPage() nennt den Grund.
+#include "web_ui.h"
+void renderSystem(WeirdUiWriter& w) { (void)w; }
+#endif // WEIRDOS_FEATURE_WEBUI
