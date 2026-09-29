@@ -53,6 +53,13 @@ Der Bedienende muss dafür nur **die Arduino-IDE installiert haben** — das Too
 benutzt die dort mitgelieferte `arduino-cli` (es liefert sie aus GPL-Gründen
 nicht selbst mit) und wählt Board/FQBN aus dem Board-Katalog.
 
+**Firmware angeben:** gar nicht nötig. Das GitHub-ZIP dieses Repos (Code →
+Download ZIP) entpackt neben die EXE legen — als `weirdos-esp32` oder so, wie
+GitHub es nennt, `weirdos-esp32-main` — und das Tool findet es beim Start. Oder
+im Tool „ZIP …" (Archiv wählen) bzw. „Von GitHub laden" (holt `main.zip`). In
+beiden Fällen benennt das Tool den Ordner auf `weirdos-esp32` um, weil Arduino
+verlangt, dass der Ordner so heißt wie die `.ino` darin.
+
 **Manuell** geht genauso, esp32-Core 3.3.11. Beispiel S3:
 
 ```
