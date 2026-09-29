@@ -525,7 +525,7 @@ void logEvent(const String& text) {
 
 void dyndnsForceNow();   // erzwingt ein sofortiges DynDNS-Update (Def. weiter unten)
 
-#if WEIRDOS_FEATURE_MODEM (PPP-/Praesenz-Observer)
+#if WEIRDOS_FEATURE_MODEM   // PPP-/Praesenz-Observer
 void onModemPppState(PppState s, const char* ip) {
     Serial.print("[modem] PPP-Status ");
     Serial.print((int)s);
@@ -615,7 +615,7 @@ static void startBareNetStack() {
                   esp_err_to_name(e1), esp_err_to_name(e2));
 }
 
-#if WEIRDOS_FEATURE_USB_HOST (USB-Host-Recovery)
+#if WEIRDOS_FEATURE_USB_HOST   // USB-Host-Recovery
 // ---- USB-Host-Recovery -----------------------------------------------------------------------
 // Nach einem Modem-Neustart (AT+CFUN=1,1: manuell, Datenschicht-Wechsel, ECM-Auto-Provisioning)
 // muss das Modem binnen ~90 s wieder enumerieren. Bleibt es aus, ist mit hoher Wahrscheinlichkeit
@@ -4416,7 +4416,7 @@ void handleWebTransportSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
 }
 
 
-#if WEIRDOS_FEATURE_ACME (ACME-Handler)
+#if WEIRDOS_FEATURE_ACME   // ACME-Handler
 // ---- ACME / Let's Encrypt (System > Sicherheit > Zertifikat) -------------------------------
 // App-Hook fuer den ACME-Client: WAN-Interface wie bei DynDNS (EgressPolicy) + DNS-Route.
 bool acmeAppResolveEgress(NetIface& out) {
@@ -4504,7 +4504,7 @@ void handleAcmeClear(WeirdHttpRequest& req, WeirdHttpResponse& res) {
 }
 #endif // WEIRDOS_FEATURE_ACME (ACME-Handler)
 
-#if WEIRDOS_FEATURE_TLS_SERVER (Zertifikats-Handler)
+#if WEIRDOS_FEATURE_TLS_SERVER   // Zertifikats-Handler
 // --- Zertifikatsverwaltung (cert_store): Herkunft, Upload, self-signed, Info ---
 
 void handleCertSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
@@ -4567,7 +4567,7 @@ void handleCertInfo(WeirdHttpRequest& req, WeirdHttpResponse& res) {
 }
 #endif // WEIRDOS_FEATURE_TLS_SERVER (Zertifikats-Handler)
 
-#if WEIRDOS_FEATURE_ACME (Challenge + Port-80-Redirect)
+#if WEIRDOS_FEATURE_ACME   // Challenge + Port-80-Redirect
 // http-01: Let's Encrypt holt http://<domain>/.well-known/acme-challenge/<token> -- PUBLIC, kein
 // WAN-Guard, keine Session (die CA hat keine). Antwort = Key-Authorization (token.thumbprint).
 void handleAcmeChallenge(WeirdHttpRequest& req, WeirdHttpResponse& res) {
@@ -4806,7 +4806,7 @@ void sendModemJson(WeirdHttpResponse& res, bool ok, const String& msg) {
 }
 
 
-#if WEIRDOS_FEATURE_MODEM (Modem-Handler)
+#if WEIRDOS_FEATURE_MODEM   // Modem-Handler
 // Speichert APN/Zugangsdaten (NVS) und wendet den Autoconnect an (Modem-Flash).
 void handleModemSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     String apn = req.arg("apn");       apn.trim();
@@ -5053,7 +5053,7 @@ void handleSysinfoJson(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     res.send(200, "application/json", j);
 }
 
-#if WEIRDOS_FEATURE_BACKUP (Export/Import-Handler)
+#if WEIRDOS_FEATURE_BACKUP   // Export/Import-Handler
 // Vollstaendige Sicherung exportieren (System -> Sicherung) ueber den zentralen
 // NVS-Manager -> automatisch ALLE Namespaces, OHNE Secrets (Denylist). Nach einem
 // Restore sind Passwoerter/PIN neu zu setzen.
@@ -5730,7 +5730,7 @@ void handleDiagWgRoute(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     res.send(200, "application/json", wgRouteDiagJson());
 }
 
-#if WEIRDOS_FEATURE_NETSCAN (Sweep/Ping/Resolve-Handler)
+#if WEIRDOS_FEATURE_NETSCAN   // Sweep/Ping/Resolve-Handler
 // 7.10: LAN-Host-Scan (Ping-Sweep des WLAN-Subnetzes) + Einzel-Ping von der MCU aus.
 void handleNetScanStart(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     // D1/D2: Ziel = CIDR oder Attachment-id (leer = WLAN-LAN), mode = auto|arp|icmp. Ablehnung mit Grund
@@ -5795,7 +5795,7 @@ void handleBtRelease(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     res.send(200, "application/json", "{\"ok\":true,\"msg\":\"BT-Stack freigegeben.\"}");
 }
 // 7.11: TCP-Port-Scan starten (ip + optional from/to; ohne = haeufige Ports) + Ergebnisse.
-#if WEIRDOS_FEATURE_NETSCAN (Portscan/Funk-Handler)
+#if WEIRDOS_FEATURE_NETSCAN   // Portscan/Funk-Handler
 void handleNetPortScanStart(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     String ip = req.arg("ip"); ip.trim();
     int from = req.hasArg("from") ? req.arg("from").toInt() : 0;
@@ -6102,7 +6102,7 @@ static String firstNumericLine(const String& raw) {
     return "";
 }
 
-#if WEIRDOS_FEATURE_MODEM (AT/Info/JSON-Handler)
+#if WEIRDOS_FEATURE_MODEM   // AT/Info/JSON-Handler
 static String atRun(const char* cmd) { return modemAtTest(3, 0x0F, 0x86, cmd); }
 
 // Band-Nummer (QENG-Feld, "3" oder "LTE BAND 3") -> nominale Frequenz in MHz
