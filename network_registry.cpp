@@ -4,7 +4,12 @@
 // Accessoren; aendert nichts am Routing. Keine Persistenz.
 // ============================================================================
 #include "weirdos_features.h"    // WEIRDOS_FEATURE_WIFI: WLAN-Interfaces/-Anbindungen nur mit WLAN-Baustein
-#include "network_registry.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_NET -- der Schalter dieses Bausteins
+#include "network_registry.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_NET
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_NET=1)
+// ============================================================================
 #if WEIRDOS_FEATURE_WIFI
 #include <WiFi.h>                // WiFi.status()/localIP()/softAPIP() (WLAN-Funk) -- ohne Baustein nicht im Bild
 #endif
@@ -414,3 +419,17 @@ String netRegistryJson() {
     j += "}";
     return j;
 }
+#else
+// Stub (WEIRDOS_FEATURE_NET=0): leere Registry -- keine Interfaces, keine Anbindungen, keine Prefixe.
+void netRegistryBuild(NetIface out[], int maxOut, int& count) { (void)out; (void)maxOut; count = 0; }
+bool netInterfaceById(const String& id, NetIface& out) { (void)id; (void)out; return false; }
+void netAttachmentsBuild(NetAttachment out[], int maxOut, int& count) { (void)out; (void)maxOut; count = 0; }
+void netReachablePrefixesBuild(ReachablePrefix out[], int maxOut, int& count) { (void)out; (void)maxOut; count = 0; }
+bool netReachablePrefixOverflow() { return false; }
+bool netAttachmentById(const String& id, NetAttachment& out) { (void)id; (void)out; return false; }
+const char* netAttachKindName(NetAttachKind k) { (void)k; return "-"; }
+const char* netAddrSourceName(NetAddrSource s) { (void)s; return "-"; }
+const char* netPrefixSourceName(NetPrefixSource s) { (void)s; return "-"; }
+String      netPrefixSourcesText(uint8_t mask) { (void)mask; return String(); }
+String netRegistryJson() { return String("{\"ok\":false,\"interfaces\":[],\"attachments\":[],\"prefixes\":[],\"msg\":") + "IP-Stack nicht im Build enthalten (WEIRDOS_FEATURE_NET=0)" + "}"; }
+#endif // WEIRDOS_FEATURE_NET

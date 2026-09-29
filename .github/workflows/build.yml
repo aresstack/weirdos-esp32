@@ -84,6 +84,12 @@ jobs:
             fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=default,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
             flags: "-DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0"
             optional: false
+          # Das Profil "webcam" wortwoertlich: CAMERA + USB_DEVICE + UVC, sonst NICHTS -- kein IP-Stack, kein
+          # Funk, kein Server, keine Konsole. Beweist den NET-Schnitt; die Groessenzeile ist die Untergrenze.
+          - name: S3 webcam-only (ohne NET)
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=default,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: "-DWEIRDOS_FEATURE_NET=0 -DWEIRDOS_FEATURE_WIFI=0 -DWEIRDOS_FEATURE_BLE=0 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0 -DWEIRDOS_FEATURE_HTTP=0 -DWEIRDOS_FEATURE_WEBUI=0 -DWEIRDOS_FEATURE_VIDEO_HTTP=0 -DWEIRDOS_FEATURE_RTSP=0 -DWEIRDOS_FEATURE_ROUTER=0 -DWEIRDOS_FEATURE_WIREGUARD=0 -DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_CRYPTO_AES=0 -DWEIRDOS_FEATURE_DYNDNS=0 -DWEIRDOS_FEATURE_TLS_CLIENT=0 -DWEIRDOS_FEATURE_TLS_SERVER=0 -DWEIRDOS_FEATURE_ACME=0 -DWEIRDOS_FEATURE_OTA=0 -DWEIRDOS_FEATURE_NETSCAN=0 -DWEIRDOS_FEATURE_BACKUP=0 -DWEIRDOS_FEATURE_CONSOLE=0 -DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1"
+            optional: true
           # P4-Pico: 16 MB Flash + PSRAM. Mit dem generischen esp32p4-Default (4 MB, 1,25-MB-App)
           # linkt der Vollausbau zwar, passt aber nicht in die App-Partition. Groesste
           # 16-MB-App-Partition des Cores: app3M_fat9M_16MB (3 MB App). Gemessen (Stand 85d7fc9):

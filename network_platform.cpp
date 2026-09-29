@@ -2,7 +2,12 @@
 // network_platform.cpp -- Aufloesung NetIface-id -> natives lwIP-netif.
 // Hier (und NUR hier) treffen die fachlichen Interface-Namen auf lwIP/esp_netif.
 // ============================================================================
-#include "network_platform.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_NET -- der Schalter dieses Bausteins
+#include "network_platform.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_NET
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_NET=1)
+// ============================================================================
 #include "ec200a_ecm.h"     // ecmNetifHandle()
 #include "ec200a_modem.h"   // pppNetifHandle()
 #include "wireguard_service.h"   // Zonen 0.1: wg0 -> nativeNetif()
@@ -136,3 +141,13 @@ String netIfaceSubnetCidr(const String& id) {
     snprintf(b, sizeof(b), "%s/%d", ip4addr_ntoa(&net), prefix);
     return String(b);
 }
+#else
+// Stub (WEIRDOS_FEATURE_NET=0): keine lwIP-netifs, kein NAPT, keine Routen-Diagnose.
+void*  netIfaceNativeHandle(const String& id) { (void)id; return nullptr; }
+String netIfaceNativeName(const String& id) { (void)id; return String(); }
+void   netIfacePrepareEgress(const String& id) { (void)id; }
+bool   netIfaceSetNapt(const String& id, bool enable) { (void)id; (void)enable; return false; }
+bool   netIfaceSetNaptNative(void* nativeHandle, bool enable) { (void)nativeHandle; (void)enable; return false; }
+String netIfaceSubnetCidr(const String& id) { (void)id; return String(); }
+String wgRouteDiagJson() { return String("{\"ok\":false,\"msg\":") + "IP-Stack nicht im Build enthalten (WEIRDOS_FEATURE_NET=0)" + "}"; }
+#endif // WEIRDOS_FEATURE_NET

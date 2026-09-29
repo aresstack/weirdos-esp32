@@ -73,7 +73,7 @@ ohne Implementierung (Vorgabe 0).
 
 | Key | Baustein | Braucht | Status |
 |---|---|---|---|
-| `NET` | IP-Stack, `network_registry`, Egress-/WAN-Policy | — | declared |
+| `NET` | IP-Stack, `network_registry`, Egress-/WAN-Policy | — | **wired** |
 | `MODEM` | EC200A: USB, AT, PPP/ECM-Datenpfad, SIM, Netzzeit | USB_HOST, NET | **wired** |
 | `USB_NCM` | ESP als USB-Netzwerkadapter am PC (Downlink) | USB_DEVICE, NET | **planned** |
 | `ROUTER` | Netzzonen: Forwarding, NAT, Policies, lwIP-Hooks | NET, **PSRAM** | **wired** |

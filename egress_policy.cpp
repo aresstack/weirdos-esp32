@@ -2,7 +2,12 @@
 // egress_policy.cpp -- Aufloesung geordneter Egress-Policies auf ein Interface.
 // Reiner Lookup ueber die NetworkRegistry; keine Routing-/Transport-Aktion.
 // ============================================================================
-#include "egress_policy.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_NET -- der Schalter dieses Bausteins
+#include "egress_policy.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_NET
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_NET=1)
+// ============================================================================
 
 // "Mobilfunk-WAN" = aktueller Mobilfunk-Datenpfad: ECM bevorzugt, sonst PPP.
 static bool resolveMobileWan(NetIface& out) {
@@ -34,3 +39,8 @@ String egressResolvedId(const String& policy) {
     NetIface ni;
     return egressResolve(policy, ni) ? ni.id : String("");
 }
+#else
+// Stub (WEIRDOS_FEATURE_NET=0): kein Egress ohne Netz.
+bool   egressResolve(const String& policy, NetIface& out) { (void)policy; (void)out; return false; }
+String egressResolvedId(const String& policy) { (void)policy; return String(); }
+#endif // WEIRDOS_FEATURE_NET

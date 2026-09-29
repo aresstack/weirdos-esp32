@@ -1,7 +1,12 @@
 // ============================================================================
 // wan_policy.cpp -- Logische System-WAN-Praeferenz + Aufloesung. Reiner Lookup.
 // ============================================================================
-#include "wan_policy.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_NET -- der Schalter dieses Bausteins
+#include "wan_policy.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_NET
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_NET=1)
+// ============================================================================
 #include "ec200a_modem.h"   // modemDataMode (Datenschicht ppp|ecm) -> Mobilfunk-Interface
 #include <Preferences.h>
 
@@ -80,3 +85,14 @@ String wanStatusJson() {
     j += "}";
     return j;
 }
+#else
+// Stub (WEIRDOS_FEATURE_NET=0): keine WAN-Wahl ohne Netz (kein NVS-Zugriff).
+static WanPolicy s_stubPolicy;
+void   wanLoadConfig() {}
+String wanSaveConfig(const WanPolicy& p) { (void)p; return String("IP-Stack nicht im Build enthalten (WEIRDOS_FEATURE_NET=0)"); }
+const WanPolicy& wanPolicyGet() { return s_stubPolicy; }
+String wanPreference() { return "auto"; }
+bool   wanResolve(NetIface& out) { (void)out; return false; }
+String wanCellularIfaceId() { return String(); }
+String wanStatusJson() { return String("{\"ok\":false,\"preference\":\"auto\",\"resolved\":\"-\",\"msg\":") + "IP-Stack nicht im Build enthalten (WEIRDOS_FEATURE_NET=0)" + "}"; }
+#endif // WEIRDOS_FEATURE_NET

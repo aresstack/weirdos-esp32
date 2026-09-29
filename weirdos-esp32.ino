@@ -58,9 +58,11 @@
 #include <WiFiUdp.h>               // Captive-DNS-Responder (UDP/53 auf dem Setup-AP)
 #include <ESPmDNS.h>               // <name>.local -- nur im lokalen Funknetz sinnvoll
 #endif
+#if WEIRDOS_FEATURE_NET   // lwIP-Aufsaetze des Cores (NetworkManager hat einen globalen Konstruktor)
 #include <Network.h>               // NetworkClient + Network.hostByName: lwIP-Unterbau, funk-unabhaengig (auch ohne WIFI)
 #include <HTTPClient.h>            // DynDNS-Update + Speedtest/Internet-Test (GET/POST) -- KEIN Funk, reitet auf lwIP (MODULES.md 7.4)
 #include <WiFiClientSecure.h>     // DynDNS ueber HTTPS (setInsecure, wie Router) -- Kompat-Alias fuer NetworkClientSecure, kein Funk
+#endif // WEIRDOS_FEATURE_NET (lwIP-Aufsaetze des Cores (NetworkManager hat einen globalen Konstruktor))
 #include <Preferences.h>
 #if WEIRDOS_FEATURE_OTA
 #include <Update.h>                // OTA-Firmware-Update ueber die Weboberflaeche
@@ -606,6 +608,7 @@ static const int HEAP_MILESTONE_MAX = 8;
 static HeapMilestone g_heapMilestones[HEAP_MILESTONE_MAX];
 static int g_heapMilestoneCount = 0;
 
+#if WEIRDOS_FEATURE_NET   // tcpip-Unterbau nur mit IP-Stack
 // Bringt NUR den lwIP/tcpip-Unterbau hoch (esp_netif + Default-Event-Loop), OHNE esp_wifi/
 // esp_hosted anzufassen. PPP (pppapi_*) und der Management-/Video-Webserver brauchen dafuer
 // nur die lwIP-tcpip-Mailbox -- keine echte WLAN-Funktion. Ersetzt WiFi.mode(WIFI_STA) fuer den
@@ -618,6 +621,7 @@ static void startBareNetStack() {
     Serial.printf("[Netz] Bare-tcpip-Init (ohne WiFi/esp_hosted): netif=%s, eventloop=%s\n",
                   esp_err_to_name(e1), esp_err_to_name(e2));
 }
+#endif // WEIRDOS_FEATURE_NET (tcpip-Unterbau nur mit IP-Stack)
 
 #if WEIRDOS_FEATURE_USB_HOST   // USB-Host-Recovery
 // ---- USB-Host-Recovery -----------------------------------------------------------------------
@@ -882,7 +886,11 @@ void setup() {
         // Sicherheitsnetz: sollte das auf echter Hardware Probleme machen (aehnlich dem
         // historischen "tcpip_send_msg_wait_sem: Invalid mbox"-Bootloop), erzwingt LAN > WLAN
         // auf "An" sofort wieder den alten, bewiesenen WiFi.mode()-Pfad -- ohne Neu-Flash.
+#if WEIRDOS_FEATURE_NET
         startBareNetStack();
+#else
+    Serial.println("[Netz] kein IP-Stack im Build (WEIRDOS_FEATURE_NET=0): kein tcpip-Unterbau, kein Netz.");
+#endif // WEIRDOS_FEATURE_NET
         Serial.println("[Netz] WLAN-Stack aus (kein Funk erkannt/gewuenscht) -> nur Netz-Unterbau; "
                        "Zugang ueber LTE (DynDNS) + serielle Konsole.");
 #if WEIRDOS_FEATURE_WIFI

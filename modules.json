@@ -24,8 +24,8 @@
     { "key": "BLE",        "layer": "hardware", "label": "Bluetooth LE",      "status": "wired",    "default": "soc:ble",     "requires": [], "soc": ["ble"],
       "files": ["bt_scan.*", "ui_bluetooth.cpp"], "hint": "BLE-Scan/Kopplung (NimBLE). Kostet spuerbar internen RAM." },
 
-    { "key": "NET",        "layer": "network", "label": "IP-Stack",           "status": "declared", "default": 1, "requires": [],
-      "files": ["network_registry.*", "network_platform.*", "egress_policy.*", "wan_policy.*", "wan_service.*", "access_policy.*", "network_mode.*"],
+    { "key": "NET",        "layer": "network", "label": "IP-Stack",           "status": "wired", "default": 1, "requires": [],
+      "files": ["network_registry.*", "network_platform.*", "egress_policy.*", "wan_policy.*", "wan_service.*", "access_policy.*", "network_mode.*", "tcpip-Unterbau (startBareNetStack) + Network.h/HTTPClient-Includes in weirdos-esp32.ino"],
       "hint": "lwIP/esp_netif, Netz-Registry, Egress-/WAN-Policy. Fundament jedes Netz-Bausteins. Die USB-Webcam braucht ihn nicht." },
     { "key": "MODEM",      "layer": "network", "label": "LTE-Modem (EC200A)", "status": "wired", "default": "soc:usb_otg", "requires": ["USB_HOST", "NET"],
       "files": ["ec200a_modem.*", "ec200a_ecm.*", "modem_datalink.*", "modem_sim.*", "modem_clock.*"], "cost": { "flash_kb": 136, "static_ram_kb": 40 },

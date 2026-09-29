@@ -2,7 +2,12 @@
 // wan_service.cpp -- siehe wan_service.h. Hintergrund-Internet-Check (eigener
 // Task, kurzer TCP-Timeout) -> blockiert nie loop()/Webserver.
 // ============================================================================
-#include "wan_service.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_NET -- der Schalter dieses Bausteins
+#include "wan_service.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_NET
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_NET=1)
+// ============================================================================
 #include "wan_policy.h"          // WanPolicy = EINZIGE System-WAN-Wahl (wanResolve)
 #include "network_registry.h"
 
@@ -123,3 +128,16 @@ String WanService::statusJson() const {
     j += "}";
     return j;
 }
+#else
+// Stub (WEIRDOS_FEATURE_NET=0): kein WAN-Check-Task, kein Socket. Das Objekt bleibt (Konsumenten
+// referenzieren wanService), antwortet aber "kein WAN".
+WanService wanService;
+void     WanService::begin() {}
+bool     WanService::everChecked() const { return false; }
+bool     WanService::wanUp() const { return false; }
+bool     WanService::internetOk() const { return false; }
+String   WanService::ifaceId() const { return "-"; }
+String   WanService::ip() const { return "-"; }
+uint32_t WanService::lastCheckAgeMs() const { return 0; }
+String   WanService::statusJson() const { return String("{\"ok\":false,\"wanUp\":false,\"internet\":false,\"iface\":\"-\",\"ip\":\"-\",\"msg\":") + "IP-Stack nicht im Build enthalten (WEIRDOS_FEATURE_NET=0)" + "}"; }
+#endif // WEIRDOS_FEATURE_NET

@@ -1,5 +1,10 @@
 // access_policy.cpp -- siehe Header.
-#include "access_policy.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_NET -- der Schalter dieses Bausteins
+#include "access_policy.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_NET
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_NET=1)
+// ============================================================================
 #include "ipsec_runtime.h"
 #include <Preferences.h>
 
@@ -68,3 +73,14 @@ String accessJson() {
     j += "}";
     return j;
 }
+#else
+// Stub (WEIRDOS_FEATURE_NET=0): ohne Netz gibt es keine Zonen -- alles ist "lokal", nichts ist erreichbar.
+const AccessService* accessServices(int& count) { count = 0; return nullptr; }
+const char*  accessZoneName(AccessZone z) { (void)z; return "lan"; }
+void        accessSetLanDetector(bool (*isLanIp)(const String& clientIp)) { (void)isLanIp; }
+AccessZone  accessZoneOf(const String& clientIp) { (void)clientIp; return ZONE_LAN; }
+uint8_t     accessMask(const char* svc) { (void)svc; return 0; }
+void        accessSet(const char* svc, uint8_t mask) { (void)svc; (void)mask; }
+bool        accessAllowed(const char* svc, const String& clientIp) { (void)svc; (void)clientIp; return true; }
+String      accessJson() { return String("{}"); }
+#endif // WEIRDOS_FEATURE_NET
