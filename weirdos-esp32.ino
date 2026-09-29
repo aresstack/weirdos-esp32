@@ -424,12 +424,11 @@ bool   webHttpsEnabled = false;   // Management-Transport: HTTPS (443) statt HTT
 // Update-Loop kommt mit der Internetverbindung (PPP).
 // ============================================================================
 // P4-TEST-DEFAULTS (nur ESP32-P4-Bring-up OHNE WLAN-Konfig-UI).
-// ⚠ GEHEIMNIS: DYNDNS_TEST_URL enthaelt den IONOS-DynDNS-Token fuer angelworks.eu.
-//   -> NICHT in ein oeffentliches Repo pushen; Token nach dem Test ROTIEREN.
-//   Nur damit der P4 DynDNS testweise OHNE UI selbst faehrt. Auf S3 unnoetig.
+// HINWEIS: Der DynDNS-Default ist LEER. Der Provider-Token (z.B. IONOS) darf
+//   NICHT im Quellcode stehen (dieses Repo ist oeffentlich). Die DynDNS-URL wird
+//   zur Laufzeit gesetzt: ueber die Web-UI oder NVS (Preferences-Schluessel "url").
 // ============================================================================
-static const char* DYNDNS_TEST_URL =
-    "https://ipv4.api.hosting.ionos.com/dns/v1/dyndns?q=NWUwZjBhMDllNjA5NGI3MGE0MzBmM2E5MmE0YWI0NTkuQ0NobnBWQkNoTmVPcFBjYU53ckdUQzZabTZ1OVVBQmNmelVZbVNjNTV0UGJEaTZwMG1qN29QeHQtZHFnbEx4NVFfQXd3S1dFRkJ0amYtYVYtdXl4Q2c";
+static const char* DYNDNS_TEST_URL = "";   // LEER: Token gehoert nicht in den Quellcode; zur Laufzeit setzen (Web-UI/NVS)
 static const char* DYNDNS_TEST_DOMAIN = "angelworks.eu";
 
 bool   dyndnsEnabled = true;        // P4-TEST: default AN (kein UI zum Aktivieren)
