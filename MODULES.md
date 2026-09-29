@@ -166,3 +166,29 @@ ohne Implementierung (Vorgabe 0).
    Webcam ohne IP-Stack).
 5. HTTP, WEBUI, CONSOLE, OTA, BACKUP, TLS_*, ACME, DYNDNS, NETSCAN.
 6. USB_NCM implementieren (Tethering/Netzwerkadapter), dann die Zukunfts-Slots.
+
+## 8. Messungen (CI, XIAO ESP32-S3, esp32-Core 3.3.11)
+
+Was der Schnitt auf dem Gerät tatsächlich spart. „statisches RAM" = globale
+Variablen (`.data`+`.bss`), also das, was dem Heap fehlt, bevor irgendetwas läuft.
+
+| Build | Schalter auf 0 | Flash | statisches RAM |
+|---|---|---|---|
+| S3 full (Stand vor dem Schnitt) | — | 2 670 859 B (79 %) | 102 408 B |
+| S3 full (nach H264-Schnitt) | H264 ist auf dem S3 immer 0 | 2 661 742 B (79 %) | 102 364 B |
+| S3 lean | WIREGUARD, IPSEC, ROUTER, RTSP | 2 412 530 B (72 %) | 89 332 B |
+| S3 no-camera (Netzwerkadapter) | CAMERA, VIDEO_HTTP, RTSP | 2 544 422 B (76 %) | 90 792 B |
+
+- VPN + Zonen + RTSP weglassen: **−249 KB Flash, −13 KB statisches RAM**.
+- Kamera-Pfad weglassen: **−117 KB Flash, −11,6 KB statisches RAM** (die
+  esp32-camera-Komponente wird nicht mehr gelinkt).
+- H264 auf dem S3: kaum Flash, aber die **Boot-Reserve von ~172 KB internem RAM**
+  für einen Encoder, den der S3 nicht hat, entfällt (Heap, nicht statisches RAM —
+  deshalb nicht in der Tabelle).
+
+P4 (generisches `esp32p4`-Target, Stock-Core, ohne PSRAM → IPsec/Zonen aus):
+linkt, 3 001 800 B — passt nicht in die 1,25-MB-App des 4-MB-Defaults und nur
+knapp in die grösste 16-MB-App-Partition des Cores (3 MB). Der Vollausbau mit
+PSRAM (IPsec + Zonen) sprengt sie: **der P4 braucht für alles zugleich eine
+eigene Partitionstabelle, und selbst dann bleibt der Heap die Grenze** — genau
+der Grund für diesen Schnitt.
