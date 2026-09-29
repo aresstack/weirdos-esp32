@@ -67,6 +67,12 @@ void UsbDeviceService::loadConfig() {
     cfg_.fps  = (uint8_t)p.getUChar("fps", 10);
     // Migration der ersten Fassung (uvc/src): uvc=1 -> Export je nach Quelle
     if (!p.isKey("cam") && p.getBool("uvc", false)) cfg_.cam = (p.getString("src", "camera") == "test") ? "testpattern0" : "camera0";
+#if WEIRDOS_USBDEV_SUPPORTED
+    // Frisches Board, nie konfiguriert: wer den Baustein UVC einbaut, will die Kamera am PC sehen --
+    // per Vorgabe AN. Ein Webcam-Profil ohne Weboberflaeche/Konsole haette sonst keinen Weg, den
+    // Export je einzuschalten. Ein gespeichertes "aus" (cam="") bleibt ein "aus".
+    if (!p.isKey("cam") && !p.isKey("uvc")) cfg_.cam = WEIRDOS_FEATURE_CAMERA ? "camera0" : "testpattern0";
+#endif
     p.end();
     if (!portValid(cfg_.port)) cfg_.port = defaultPort();
     if (cfg_.cam != "camera0" && cfg_.cam != "testpattern0") cfg_.cam = "";

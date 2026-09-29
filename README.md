@@ -61,6 +61,21 @@ arduino-cli compile --fqbn "$FQBN" .
 arduino-cli upload  --fqbn "$FQBN" -p <PORT> .
 ```
 
+**USB-Webcam (Profil `webcam`).** Der USB-Gerätestack braucht die
+Board-Option **USB-OTG (TinyUSB)** statt Hardware-CDC, und **CDC beim Start aus**
+(die Firmware bringt eigene Deskriptoren mit). Beispiel S3:
+
+```
+FQBN="esp32:esp32:XIAO_ESP32S3:USBMode=default,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+arduino-cli compile --fqbn "$FQBN" \
+  --build-property "compiler.cpp.extra_flags=-DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1 -DWEIRDOS_FEATURE_NET=0 ..." .
+```
+
+Das Cam-Tool setzt beides von selbst, sobald die Auswahl ein USB-Gerät enthält,
+und **PSRAM immer an** (der Core listet „Disabled" als Erstes — dann bleibt die
+Kamera aus). Ein frisch geflashtes Webcam-Board exportiert die Kamera ohne
+weitere Einrichtung (`usbdev`-Vorgabe `camera0`).
+
 **S3: kein BOOT+RESET-Hack mehr im Normalfall.** WeirdOS erkennt am
 USB-Serial-JTAG (SOF), ob ein **PC** oder ein **Modem** am USB hängt
 (`usb_serial_jtag_is_connected()`, `weirdos-esp32.ino`). Hängt ein PC dran,
