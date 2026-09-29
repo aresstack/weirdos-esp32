@@ -90,18 +90,17 @@ jobs:
             fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=default,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
             flags: "-DWEIRDOS_FEATURE_NET=0 -DWEIRDOS_FEATURE_WIFI=0 -DWEIRDOS_FEATURE_BLE=0 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0 -DWEIRDOS_FEATURE_HTTP=0 -DWEIRDOS_FEATURE_WEBUI=0 -DWEIRDOS_FEATURE_VIDEO_HTTP=0 -DWEIRDOS_FEATURE_RTSP=0 -DWEIRDOS_FEATURE_ROUTER=0 -DWEIRDOS_FEATURE_WIREGUARD=0 -DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_CRYPTO_AES=0 -DWEIRDOS_FEATURE_DYNDNS=0 -DWEIRDOS_FEATURE_TLS_CLIENT=0 -DWEIRDOS_FEATURE_TLS_SERVER=0 -DWEIRDOS_FEATURE_ACME=0 -DWEIRDOS_FEATURE_OTA=0 -DWEIRDOS_FEATURE_NETSCAN=0 -DWEIRDOS_FEATURE_BACKUP=0 -DWEIRDOS_FEATURE_CONSOLE=0 -DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1"
             optional: false   # seit Lauf 18 gruen: 527 463 B Flash, 77 256 B statisch
-          # P4-Pico: 16 MB Flash + PSRAM. Mit dem generischen esp32p4-Default (4 MB, 1,25-MB-App)
-          # linkt der Vollausbau zwar, passt aber nicht in die App-Partition. Groesste
-          # 16-MB-App-Partition des Cores: app3M_fat9M_16MB (3 MB App). Gemessen (Stand 85d7fc9):
-          # Vollausbau MIT PSRAM (IPsec + Zonen an) 3 058 382 B = 97 % -- passt, aber ohne Luft;
-          # jede neue Zeile im Vollausbau kippt diesen Job. Das ist gewollt: der P4-Vollausbau
-          # ist die Obergrenze, die Profile sind der Normalfall. Beide Jobs sind blockierend.
-          - name: P4 full (16 MB, PSRAM)
-            fqbn: "esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=enabled"
+          # Waveshare ESP32-P4-Pico: 32 MB Flash + 32 MB PSRAM (BOARD_SETTINGS.md). Mit dem generischen
+          # esp32p4-Default (4 MB, 1,25-MB-App) passt kein WeirdOS-Build. default_32MB = zwei 12,5-MB-
+          # App-Slots (OTA) + Datenpartition "spiffs" (die LittleFS der Firmware erwartet -- das 16-MB-
+          # Schema hat nur "ffat"). Dieselbe FQBN setzt das Cam-Tool (weirdos_board_defaults). Bis Lauf 18
+          # wurde gegen app3M_fat9M_16MB (3 MB App) gemessen; der Vollausbau fuellte die zu 83 %.
+          - name: P4 full (32 MB, PSRAM)
+            fqbn: "esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled"
             flags: ""
             optional: false
           - name: P4 lean (ohne IPsec/Zonen)
-            fqbn: "esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=enabled"
+            fqbn: "esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled"
             flags: "-DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_ROUTER=0"
             optional: false
     continue-on-error: ${{ matrix.optional }}

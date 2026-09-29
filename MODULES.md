@@ -244,20 +244,27 @@ Was die Zeilen sagen:
 - **H264 auf dem S3:** kaum Flash, aber die **Boot-Reserve von ~172 KB internem RAM**
   für einen Encoder, den der S3 nicht hat, entfällt (Heap, nicht statisches RAM).
 
-### ESP32-P4 (generisches `esp32p4`-Target, Stock-Core 3.3.11, 16 MB, `app3M_fat9M_16MB`: App-Partition 3 145 728 B)
+### ESP32-P4 (Waveshare P4-Pico: 32 MB Flash + 32 MB PSRAM, generisches `esp32p4`-Target, Stock-Core 3.3.11)
 
-| Build | Schalter auf 0 | Flash | statisches RAM |
-|---|---|---|---|
-| P4 full (vor dem WIFI-Schnitt) | — | 3 058 382 B (97 %) | 76 124 B |
-| **P4 full** | — (WIFI/BLE sind auf dem P4 immer 0) | 2 635 632 B (83 %) | 66 900 B |
-| P4 lean | IPSEC, ROUTER | 2 436 056 B (77 %) | 50 372 B |
+Gemessen bis Lauf 18 gegen `app3M_fat9M_16MB` (App-Partition 3 145 728 B); seit Lauf 19
+baut die CI wie das Cam-Tool mit `FlashSize=32M,PartitionScheme=app13M_data7M_32MB`
+(`default_32MB`: zwei 12,5-MB-App-Slots mit OTA + Datenpartition `spiffs`, App-Partition
+13 107 200 B). Die Bytes ändern sich dadurch nicht, nur die Prozente.
+
+| Build | Schalter auf 0 | Flash | in 3-MB-App | in 12,5-MB-App | statisches RAM |
+|---|---|---|---|---|---|
+| P4 full (vor dem WIFI-Schnitt) | — | 3 058 382 B | 97 % | 23 % | 76 124 B |
+| **P4 full** | — (WIFI/BLE sind auf dem P4 immer 0) | 2 635 632 B | 83 % | 20 % | 66 900 B |
+| P4 lean | IPSEC, ROUTER | 2 436 056 B | 77 % | 19 % | 50 372 B |
 
 - **Der WIFI-Schnitt allein bringt dem P4 −423 KB Flash und −9 KB statisches RAM:** vorher
   zog `WiFi.h` (globaler `WiFiClass WiFi`) die ganze WiFi-Bibliothek in ein Image für einen
-  Chip ohne Funk. Der Vollausbau passt jetzt mit Luft in die 3-MB-Partition (83 % statt 97 %).
+  Chip ohne Funk.
 - IPsec + Zonen weglassen: −200 KB Flash, −16,5 KB statisches RAM.
-- Mit dem 4-MB-Default des Cores (1,25-MB-App) passt weiterhin kein P4-Build; erst die
-  größte 16-MB-App-Partition nimmt ihn.
+- Mit dem 4-MB-Default des Cores (1,25-MB-App) passt kein P4-Build. Auf dem 32-MB-Board ist
+  Flash keine Grenze mehr; der Schnitt zählt dort für den **Heap**, nicht für den Flash.
+- Das 16-MB-Schema trägt eine `ffat`-Datenpartition; die Firmware mountet LittleFS auf dem
+  Label `spiffs` (eigenes Pinout-SVG). Nur `default_32MB` passt zu beidem.
 - Der P4-Heap ist mit dieser Messung noch nicht erfasst (statisches RAM ≠ Heap;
   H264-Encoder, PPA und Kamera-Puffer kommen zur Laufzeit dazu). Deshalb bleibt
   der Schnitt entlang der Profile der Weg, nicht eine größere Partition.

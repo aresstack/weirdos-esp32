@@ -61,6 +61,13 @@ arduino-cli compile --fqbn "$FQBN" .
 arduino-cli upload  --fqbn "$FQBN" -p <PORT> .
 ```
 
+Beispiel P4 (Waveshare ESP32-P4-Pico, 32 MB Flash + 32 MB PSRAM — der 4-MB-Default des
+Cores passt nicht):
+
+```
+FQBN="esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled"
+```
+
 **USB-Webcam (Profil `webcam`).** Der USB-Gerätestack braucht die
 Board-Option **USB-OTG (TinyUSB)** statt Hardware-CDC, und **CDC beim Start aus**
 (die Firmware bringt eigene Deskriptoren mit). Beispiel S3:

@@ -13,7 +13,7 @@ Im Board-Dropdown: **XIAO_ESP32S3**. Menü-Einstellungen (entsprechen der belegt
 |---|---|---|
 | Board | XIAO_ESP32S3 | `XIAO_ESP32S3` |
 | USB Mode | Hardware CDC and JTAG | `USBMode=hwcdc` |
-| USB CDC On Boot | Enabled | `CDCOnBoot=cdc` |
+| USB CDC On Boot | **Disabled** (`cdc` heißt beim XIAO „Disabled", `default` „Enabled" — boards.txt 3.3.11) | `CDCOnBoot=cdc` |
 | PSRAM | OPI PSRAM | `PSRAM=opi` |
 | Flash Size | 8 MB | `FlashSize=8M` |
 | Partition Scheme | 8 MB (default) | `PartitionScheme=default_8MB` |
@@ -100,3 +100,19 @@ esp32:esp32:esp32p4          # generisches Dev Module; Waveshare-Variante ggf. e
 
 _Notiz gepflegt beim Boardwechsel S3 → P4-Pico. Bei bestätigten P4-FQBN/Menüwerten diese Tabelle
 mit den echten Dropdown-Werten aktualisieren._
+
+## Stand 2026-09-29 — was das Cam-Tool von selbst setzt
+
+Quelle: `weirdos_board_defaults.*` im Cam-Tool; dieselben FQBNs baut die CI
+(`.github/workflows/build.yml`). Der Core listet bei beiden Boards **PSRAM: Disabled**
+als Erstes — das Tool überstimmt das, weil ohne PSRAM die Kamera aus bleibt.
+
+| Board | FQBN | Wann |
+|---|---|---|
+| XIAO ESP32-S3 | `esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB` | alle Profile ohne USB-Gerät (unverändert: Board 1) |
+| XIAO ESP32-S3 | `esp32:esp32:XIAO_ESP32S3:USBMode=default,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB` | Profile mit USB-Gerät (`webcam`, `webcam-managed`, `usb-tether`): **USB-OTG (TinyUSB)**, CDC aus — die Firmware bringt eigene Deskriptoren mit |
+| Waveshare ESP32-P4-Pico | `esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled` | alle Profile: 32 MB, `default_32MB` = zwei 12,5-MB-App-Slots (OTA) + `spiffs` (LittleFS der Firmware) |
+
+CDC beim Start bleibt auf beiden Boards **aus**: der Log kommt über UART0 (XIAO: USB-UART-
+Adapter an D6/D7; P4-Pico: CH343 an der USB-C-Buchse). Beim P4 hält das den HS-USB für den
+Modem-Host frei; beim Webcam-Build ist der USB-Port das Gerät selbst.
