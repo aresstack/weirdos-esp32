@@ -193,37 +193,66 @@ Was sich beim Verdrahten als Regel bewährt hat:
 - **Pure Zuordnungen vor den Schalter** (`modeId()`, `systemClockIso()`,
   `serialConsoleBaud()`): einmal definiert, kein Stub-Duplikat, das auseinanderläuft.
 
-## 8. Messungen (CI, XIAO ESP32-S3, esp32-Core 3.3.11)
+## 8. Messungen (CI, esp32-Core 3.3.11, Stand Lauf 15 = Commit f4bb677)
 
 Was der Schnitt auf dem Gerät tatsächlich spart. „statisches RAM" = globale
 Variablen (`.data`+`.bss`), also das, was dem Heap fehlt, bevor irgendetwas läuft.
+Jede Zeile ist ein CI-Job in `.github/workflows/build.yml`; fällt einer, ist ein
+Stub unvollständig oder ein Baustein leckt in einen anderen.
+
+### XIAO ESP32-S3 (8 MB, `default_8MB`: App-Partition 3 342 336 B)
 
 | Build | Schalter auf 0 | Flash | statisches RAM |
 |---|---|---|---|
 | S3 full (Stand vor dem Schnitt) | — | 2 670 859 B (79 %) | 102 408 B |
-| S3 full (nach H264-Schnitt) | H264 ist auf dem S3 immer 0 | 2 661 742 B (79 %) | 102 364 B |
-| S3 lean | WIREGUARD, IPSEC, ROUTER, RTSP | 2 412 530 B (72 %) | 89 332 B |
-| S3 no-camera (Netzwerkadapter) | CAMERA, VIDEO_HTTP, RTSP | 2 544 422 B (76 %) | 90 792 B |
+| **S3 full** | — (H264 ist auf dem S3 immer 0) | 2 662 058 B (79 %) | 102 364 B |
+| S3 api-only | WEBUI | 2 341 118 B (70 %) | 102 356 B |
+| S3 no-modem | MODEM, USB_HOST | 2 494 934 B (74 %) | 99 084 B |
+| S3 no-camera (Netzwerkadapter) | CAMERA, VIDEO_HTTP, RTSP | 2 544 738 B (76 %) | 90 792 B |
+| S3 lean | WIREGUARD, IPSEC, ROUTER, RTSP | 2 408 994 B (72 %) | 84 476 B |
+| S3 no-wifi (P4-Pfad) | WIFI | 2 271 842 B (67 %) | 81 008 B |
+| S3 slim-control | TLS_SERVER, ACME, TLS_CLIENT, DYNDNS, OTA, CONSOLE, NETSCAN, BACKUP, CRYPTO_AES, IPSEC | 2 138 558 B (63 %) | 79 884 B |
+| S3 headless | HTTP, WEBUI, VIDEO_HTTP, OTA, TLS_SERVER, ACME | 1 734 058 B (51 %) | 96 936 B |
+| S3 webcam (USB-OTG) | MODEM, USB_HOST; **USB_DEVICE + UVC auf 1** | 2 573 478 B (76 %) | 130 836 B |
+| S3 webcam-only | alles außer CAMERA, USB_DEVICE, UVC (auch NET) | WEBCAM_ONLY_FLASH | WEBCAM_ONLY_RAM |
 
-- VPN + Zonen + RTSP weglassen: **−249 KB Flash, −13 KB statisches RAM**.
-- Kamera-Pfad weglassen: **−117 KB Flash, −11,6 KB statisches RAM** (die
-  esp32-camera-Komponente wird nicht mehr gelinkt).
-- H264 auf dem S3: kaum Flash, aber die **Boot-Reserve von ~172 KB internem RAM**
-  für einen Encoder, den der S3 nicht hat, entfällt (Heap, nicht statisches RAM —
-  deshalb nicht in der Tabelle).
+Was die Zeilen sagen:
 
-### P4 (generisches `esp32p4`-Target, Stock-Core 3.3.11, 16 MB, `app3M_fat9M_16MB`, PSRAM)
+- **Weboberfläche weg (WEBUI):** −321 KB Flash — der größte Einzelposten der Bedienung
+  (App-CSS/JS + alle Seiten). PIN-Gate und JSON-API bleiben.
+- **HTTP-Server weg (headless):** −928 KB Flash, mehr als ein Drittel des Images —
+  esp_http_server, Auth, alle Handler und Seiten fallen per gc-sections, sobald `g_web`
+  fehlt. Das statische RAM sinkt kaum, weil der Server seine Puffer erst zur Laufzeit holt;
+  der Heap-Gewinn (Tasks, Sockets, Sitzungen) kommt hier nicht in der Tabelle vor.
+- **WLAN weg (no-wifi):** −390 KB Flash, −21 KB statisches RAM — die WiFi-Bibliothek samt
+  esp_wifi-Blobs, SoftAP, Captive-Portal, mDNS. Genau der Pfad, den der P4 immer nimmt.
+- **Verwaltungs-Extras weg (slim-control):** −524 KB Flash, −22 KB statisches RAM — kein
+  HTTPS-Server, kein Let's Encrypt, kein HTTPS-Client, kein DynDNS, kein OTA, keine Konsole,
+  keine Netz-Diagnose, keine Sicherung, kein eigener AES.
+- **VPN + Zonen + RTSP weg (lean):** −253 KB Flash, −18 KB statisches RAM.
+- **Kamera-Pfad weg (no-camera):** −117 KB Flash, −11,6 KB statisches RAM (esp32-camera
+  wird nicht mehr gelinkt).
+- **Modem weg (no-modem):** −167 KB Flash, −3 KB statisches RAM (EC200A-Treiber, PPP, ECM,
+  SIM, USB-Host-Recovery).
+- **USB-Webcam (USB_DEVICE + UVC an):** +79 KB Flash und +32 KB statisches RAM gegenüber no-modem — die
+  TinyUSB-Puffer, die der Baustein USB_DEVICE deshalb nie per Vorgabe mitbringt.
+- **H264 auf dem S3:** kaum Flash, aber die **Boot-Reserve von ~172 KB internem RAM**
+  für einen Encoder, den der S3 nicht hat, entfällt (Heap, nicht statisches RAM).
 
-| Build | Schalter auf 0 | Flash (App-Partition 3 145 728 B) | statisches RAM |
+### ESP32-P4 (generisches `esp32p4`-Target, Stock-Core 3.3.11, 16 MB, `app3M_fat9M_16MB`: App-Partition 3 145 728 B)
+
+| Build | Schalter auf 0 | Flash | statisches RAM |
 |---|---|---|---|
-| P4 full | — | 3 058 382 B (97 %) | 76 124 B |
-| P4 lean | IPSEC, ROUTER | 2 863 334 B (91 %) | 64 444 B |
+| P4 full (vor dem WIFI-Schnitt) | — | 3 058 382 B (97 %) | 76 124 B |
+| **P4 full** | — (WIFI/BLE sind auf dem P4 immer 0) | 2 635 632 B (83 %) | 66 900 B |
+| P4 lean | IPSEC, ROUTER | 2 436 056 B (77 %) | 50 372 B |
 
-- Mit dem 4-MB-Default des Cores (1,25-MB-App) passt **kein** P4-Build; erst die
-  grösste 16-MB-App-Partition des Cores nimmt ihn — und der Vollausbau füllt sie
-  zu 97 %. Jede weitere Zeile im Vollausbau kippt den CI-Job `P4 full`; das ist
-  Absicht: der Vollausbau ist die Obergrenze, die Profile sind der Normalfall.
-- IPsec + Zonen weglassen: **−195 KB Flash, −11,7 KB statisches RAM**.
+- **Der WIFI-Schnitt allein bringt dem P4 −423 KB Flash und −9 KB statisches RAM:** vorher
+  zog `WiFi.h` (globaler `WiFiClass WiFi`) die ganze WiFi-Bibliothek in ein Image für einen
+  Chip ohne Funk. Der Vollausbau passt jetzt mit Luft in die 3-MB-Partition (83 % statt 97 %).
+- IPsec + Zonen weglassen: −200 KB Flash, −16,5 KB statisches RAM.
+- Mit dem 4-MB-Default des Cores (1,25-MB-App) passt weiterhin kein P4-Build; erst die
+  größte 16-MB-App-Partition nimmt ihn.
 - Der P4-Heap ist mit dieser Messung noch nicht erfasst (statisches RAM ≠ Heap;
   H264-Encoder, PPA und Kamera-Puffer kommen zur Laufzeit dazu). Deshalb bleibt
-  der Schnitt entlang der Profile der Weg, nicht eine grössere Partition.
+  der Schnitt entlang der Profile der Weg, nicht eine größere Partition.

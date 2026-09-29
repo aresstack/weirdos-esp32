@@ -36,10 +36,6 @@ NetworkMode NetworkModeService::modeFromId(const String& id) {
     return NETMODE_LEGACY;
 }
 
-bool NetworkModeService::naptCapable() const { return WEIRDOS_NAPT_CAPABLE ? true : false; }
-
-void NetworkModeService::begin() { loadConfig(); /* PHASE 1: bewusst KEIN apply() */ }
-
 
 #if WEIRDOS_FEATURE_NET
 // ============================================================================
@@ -57,6 +53,10 @@ NetworkModeService networkMode;
 #else
   #define WEIRDOS_NAPT_CAPABLE 0
 #endif
+
+bool NetworkModeService::naptCapable() const { return WEIRDOS_NAPT_CAPABLE ? true : false; }
+
+void NetworkModeService::begin() { loadConfig(); /* PHASE 1: bewusst KEIN apply() */ }
 
 void NetworkModeService::loadConfig() {
     Preferences p;
