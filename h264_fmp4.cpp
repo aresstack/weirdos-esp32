@@ -1,7 +1,19 @@
 // ============================================================================
 // h264_fmp4.cpp  --  siehe h264_fmp4.h
+//
+// Baustein-Schalter WEIRDOS_FEATURE_H264 (weirdos_features.h): der Muxer ist der Transport des
+// HW-H.264-Encoders (NAL -> fMP4 fuer Browser/MSE) und ohne H.264-Quelle sinnlos, darum haengt
+// er am selben Schalter (MODULES.md: H264 = Encoder + PPA + fMP4 + Reserve).
+//   1 = echte Implementierung -- unveraendert.
+//   0 = Stub am Dateiende (begin()/feed()/initSegment()/mediaSegment() = false, hasInit() false).
+// Bisher war diese Datei auf allen Targets real (reine Rechnung, keine HW); auf dem S3 wurde sie
+// aber nie ausgefuehrt (/video.mp4 antwortet dort 503 vor dem ersten feed(), H264Encoder::
+// hwAvailable() ist false) -- der Stub aendert das Laufzeitverhalten also nicht, nur den Link.
 // ============================================================================
+#include "weirdos_features.h"
 #include "h264_fmp4.h"
+
+#if WEIRDOS_FEATURE_H264
 #include "esp_heap_caps.h"
 #include <cstring>
 #include <cstdio>
@@ -256,3 +268,33 @@ bool Fmp4Muxer::mediaSegment(const uint8_t** out, size_t* len, uint32_t duration
     *out = b.p; *len = b.len;
     return b.len > 0;
 }
+
+#else   // ------------------------------------------------------------------
+// Stub: nicht im Build enthalten (WEIRDOS_FEATURE_H264=0). Dieselben Symbole wie oben, triviale
+// Koerper, kein Heap: die Inline-Getter im Header (hasInit(), codecString()) melden ueber die
+// Vorgaben haveSps_/havePps_=false und codec_="" korrekt "nichts". Jeder Aufruf, den ein
+// Konsument sonst als Erfolg deuten koennte, liefert false.
+// ============================================================================
+Fmp4Muxer::Fmp4Muxer()
+    : w_(0), h_(0), timescale_(90000), sampleDur_(3000), seq_(1), baseDecodeTime_(0),
+      haveSps_(false), havePps_(false), sps_(nullptr), spsLen_(0), pps_(nullptr), ppsLen_(0),
+      avccKey_(false) {
+    codec_[0] = 0;
+    avcc_ = {nullptr,0,0}; init_ = {nullptr,0,0}; media_ = {nullptr,0,0};
+}
+Fmp4Muxer::~Fmp4Muxer() {}
+bool Fmp4Muxer::begin(uint16_t, uint16_t, uint32_t, uint32_t) { return false; }
+void Fmp4Muxer::end() {}
+bool Fmp4Muxer::feed(const uint8_t*, size_t, bool) { return false; }
+bool Fmp4Muxer::initSegment(const uint8_t**, size_t*) { return false; }
+bool Fmp4Muxer::mediaSegment(const uint8_t**, size_t*, uint32_t) { return false; }
+// Private Helfer: nie aufgerufen, aber definiert -- das Klassenlayout ist mit dem Header geteilt.
+bool   Fmp4Muxer::ensure(Buf&, size_t) { return false; }
+void   Fmp4Muxer::u8 (Buf&, uint8_t)  {}
+void   Fmp4Muxer::u16(Buf&, uint16_t) {}
+void   Fmp4Muxer::u32(Buf&, uint32_t) {}
+void   Fmp4Muxer::u64(Buf&, uint64_t) {}
+void   Fmp4Muxer::raw(Buf&, const void*, size_t) {}
+size_t Fmp4Muxer::boxStart(Buf&, const char*) { return 0; }
+void   Fmp4Muxer::boxEnd(Buf&, size_t) {}
+#endif // WEIRDOS_FEATURE_H264

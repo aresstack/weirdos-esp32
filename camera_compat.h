@@ -11,11 +11,18 @@
 // brechen. Ziel: der P4-Build wird gruen; die MIPI-Verdrahtung ist ein eigener
 // Slice.  (Wenn diese Direktpfade spaeter ganz ueber CameraManager laufen,
 // kann dieser Shim wieder entfallen.)
+//
+// Schalterkasten: bei WEIRDOS_FEATURE_CAMERA=0 gelten die Shims AUCH auf dem S3.
+// Dann bindet keine Uebersetzungseinheit mehr esp_camera.h ein, und die
+// esp32-camera-Komponente faellt aus dem Link (reiner Netzwerkadapter-Build).
+// Der echte Header kommt NUR bei WEIRDOS_FEATURE_CAMERA=1 auf einem DVP-Board.
 // ============================================================================
 #ifndef CAMERA_COMPAT_H
 #define CAMERA_COMPAT_H
 
-#if __has_include("esp_camera.h")
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_CAMERA (zieht sdkconfig.h -> CONFIG_IDF_TARGET_*)
+
+#if WEIRDOS_FEATURE_CAMERA && !defined(CONFIG_IDF_TARGET_ESP32P4) && __has_include("esp_camera.h")
 #include "esp_camera.h"
 #else
 
@@ -51,5 +58,5 @@ static inline camera_fb_t* esp_camera_fb_get()            { return nullptr; }
 static inline void         esp_camera_fb_return(camera_fb_t*) {}
 static inline sensor_t*    esp_camera_sensor_get()        { return nullptr; }
 
-#endif  // __has_include("esp_camera.h")
+#endif  // WEIRDOS_FEATURE_CAMERA && !P4 && __has_include("esp_camera.h")
 #endif  // CAMERA_COMPAT_H

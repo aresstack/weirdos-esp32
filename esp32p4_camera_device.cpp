@@ -11,7 +11,12 @@
 // die board-spezifische esp_video_init()-Konfig (CSI-Lanes, Sensor, SCCB/I2C)
 // muss auf echter P4-Hardware verifiziert werden -> unten als TODO markiert.
 // ============================================================================
-#include "esp32p4_camera_device.h"
+#include "weirdos_features.h"        // WEIRDOS_FEATURE_CAMERA -- der Schalter dieses Bausteins
+#include "esp32p4_camera_device.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_CAMERA
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_CAMERA=1): P4-Pfad ODER Nicht-P4-Stubs (wie bisher)
+// ============================================================================
 #include <sdkconfig.h>   // CONFIG_IDF_TARGET_ESP32P4 (sonst faellt der Build auf die Stubs)
 #include <cstring>
 
@@ -737,3 +742,39 @@ int Esp32P4MipiCamera::paramCount() const { return 0; }
 bool Esp32P4MipiCamera::paramAt(int, CameraParamInfo&) const { return false; }
 bool Esp32P4MipiCamera::setParam(const char*, int) { return false; }
 #endif
+
+#else
+// ============================================================================
+// Stub: Kamera nicht im Build enthalten (WEIRDOS_FEATURE_CAMERA=0), alle Targets
+// CameraManager haelt dieses Geraet auf dem P4 BY VALUE -> die Klasse muss vollstaendig sein
+// (Konstruktor/Destruktor/alle Overrides). Kein esp_video/V4L2/HW-JPEG hier -> keine dieser
+// Komponenten (und kein ov5647-Treiber-Anker) wird in einen kameralosen Build gelinkt.
+// ============================================================================
+Esp32P4MipiCamera::Esp32P4MipiCamera()
+    : config_{ 0, 0, 12, 2 }, ready_(false), frame_{}, fd_(-1),
+      curPixFmt_(0), jpegCapable_(false), inFourcc_(0), jpegSrcType_(0),
+      jpegEnc_(nullptr), jpegBuf_(nullptr), jpegCap_(0),
+      curBufIndex_(-1), sequence_(0), jpegQuality_(0), bufCount_(0),
+      lock_(nullptr), reconfiguring_(false) {
+    for (int i = 0; i < MAX_BUFS; i++) { bufPtr_[i] = nullptr; bufLen_[i] = 0; }
+}
+Esp32P4MipiCamera::~Esp32P4MipiCamera() {}
+void         Esp32P4MipiCamera::configure(const Config& config) { config_ = config; }
+bool         Esp32P4MipiCamera::begin() { return false; }
+bool         Esp32P4MipiCamera::isReady() const { return false; }
+CameraFrame* Esp32P4MipiCamera::acquireFrame() { return nullptr; }
+CameraFrame* Esp32P4MipiCamera::acquireRawFrame() { return nullptr; }
+void         Esp32P4MipiCamera::releaseFrame(CameraFrame* frame) { (void)frame; }
+int          Esp32P4MipiCamera::enumPixelFormats(uint32_t* outFourcc, int maxOut) const { (void)outFourcc; (void)maxOut; return 0; }
+int          Esp32P4MipiCamera::enumModes(CameraVideoMode* out, int maxOut) const { (void)out; (void)maxOut; return 0; }
+bool         Esp32P4MipiCamera::setMode(uint16_t width, uint16_t height) { (void)width; (void)height; return false; }
+bool         Esp32P4MipiCamera::currentMode(uint16_t& width, uint16_t& height) const { (void)width; (void)height; return false; }
+int          Esp32P4MipiCamera::paramCount() const { return 0; }
+bool         Esp32P4MipiCamera::paramAt(int index, CameraParamInfo& out) const { (void)index; (void)out; return false; }
+bool         Esp32P4MipiCamera::setParam(const char* key, int value) { (void)key; (void)value; return false; }
+void         Esp32P4MipiCamera::setJpegQualityUi(int ui0to63) { (void)ui0to63; }
+int          Esp32P4MipiCamera::jpegQualityUi() const { return -1; }
+bool         Esp32P4MipiCamera::applyCaptureFormat(uint16_t width, uint16_t height) { (void)width; (void)height; return false; }
+void         Esp32P4MipiCamera::teardownCapture() {}
+bool         Esp32P4MipiCamera::ensureJpegEncoder(uint16_t width, uint16_t height) { (void)width; (void)height; return false; }
+#endif  // WEIRDOS_FEATURE_CAMERA

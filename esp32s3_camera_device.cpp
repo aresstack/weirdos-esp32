@@ -6,7 +6,12 @@
 // aufloesung dimensioniert, OV3660-Sensorabstimmung, Selbsttest ueber den
 // DVP-Datenpfad. Die PSRAM-Budget-/Fallback-Logik bleibt (vorerst) in der App.
 // ============================================================================
-#include "esp32s3_camera_device.h"
+#include "weirdos_features.h"        // WEIRDOS_FEATURE_CAMERA -- der Schalter dieses Bausteins
+#include "esp32s3_camera_device.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_CAMERA
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_CAMERA=1): esp_camera/DVP-Pfad, nur auf Nicht-P4
+// ============================================================================
 #include <sdkconfig.h>   // CONFIG_IDF_TARGET_ESP32P4 -> auf P4 ist dieses DVP-Geraet inaktiv
 
 // Dieses Geraet ist der esp_camera/DVP-Pfad (XIAO ESP32-S3). Auf dem ESP32-P4
@@ -363,3 +368,29 @@ bool Esp32S3DvpCamera::setParam(const char* key, int value) {
 }
 
 #endif  // !CONFIG_IDF_TARGET_ESP32P4  (S3-DVP-Geraet; auf P4 leer)
+
+#else
+// ============================================================================
+// Stub: Kamera nicht im Build enthalten (WEIRDOS_FEATURE_CAMERA=0), alle Targets
+// CameraManager haelt dieses Geraet auf Nicht-P4-Targets BY VALUE -> die Klasse muss
+// vollstaendig sein (Konstruktor/Destruktor/alle Overrides), auch wenn sie nie ein Bild
+// liefert. Kein esp_camera.h hier -> die esp32-camera-Komponente bleibt aus dem Build.
+// ============================================================================
+Esp32S3DvpCamera::Esp32S3DvpCamera()
+    : config_{ 0, 0, 12, 0, 2 },
+      ready_(false),
+      frame_{ nullptr, 0, 0, 0, CAMERA_PIXEL_FORMAT_JPEG, 0 },
+      rawFrame_(nullptr),
+      sequence_(0) {}
+Esp32S3DvpCamera::~Esp32S3DvpCamera() {}
+void         Esp32S3DvpCamera::configure(const Config& config) { config_ = config; }
+bool         Esp32S3DvpCamera::begin() { return false; }
+bool         Esp32S3DvpCamera::isReady() const { return false; }
+CameraFrame* Esp32S3DvpCamera::acquireFrame() { return nullptr; }
+void         Esp32S3DvpCamera::releaseFrame(CameraFrame* frame) { (void)frame; }
+int          Esp32S3DvpCamera::enumModes(CameraVideoMode* out, int maxOut) const { (void)out; (void)maxOut; return 0; }
+bool         Esp32S3DvpCamera::setMode(uint16_t width, uint16_t height) { (void)width; (void)height; return false; }
+int          Esp32S3DvpCamera::paramCount() const { return 0; }
+bool         Esp32S3DvpCamera::paramAt(int index, CameraParamInfo& out) const { (void)index; (void)out; return false; }
+bool         Esp32S3DvpCamera::setParam(const char* key, int value) { (void)key; (void)value; return false; }
+#endif  // WEIRDOS_FEATURE_CAMERA

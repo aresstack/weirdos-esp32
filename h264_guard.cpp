@@ -1,7 +1,44 @@
 // ============================================================================
 // h264_guard.cpp -- siehe h264_guard.h.
+//
+// Baustein-Schalter WEIRDOS_FEATURE_H264 (weirdos_features.h): die Video-Reserve existiert NUR
+// fuer den HW-H.264-Encoder (interne Referenz-/Deblocking-/DMA-Puffer), darum haengt sie am
+// selben Schalter (MODULES.md: H264 = Encoder + PPA + fMP4 + interne RAM-Reserve).
+//   1 = echte Implementierung (Boot-Reserve als exklusive Heap-Region + Allocator-/Cache-Sync-
+//       Hooks, die die Symbole der esp_h264-Lib ersetzen) -- unveraendert.
+//   0 = Stub am Dateiende: keine Reserve, kein NVS, keine Hooks (ohne Lib gaebe es nichts zu
+//       ersetzen); alle Getter 0/false. Die Konsumenten (.ino Boot-Aufruf, /heapmap, ui_video)
+//       kompilieren und linken unveraendert.
+// HINWEIS: bisher war diese Datei auf ALLEN Targets real, d.h. auch der S3 hat beim Boot (Stream-
+// Typ != "off", NVS-Vorgabe "automatisch") versucht, die Reserve fuer seinen groessten Kamera-
+// Modus aus dem internen DMA-Heap zu binden -- fuer einen Encoder, den er nicht hat. Mit dem
+// Schalter entfaellt das auf dem S3 (mehr freier interner Heap, keine [H264Guard]-Zeilen).
 // ============================================================================
+#include "weirdos_features.h"
 #include "h264_guard.h"
+
+// ---- Reine Rechenhilfen (keine Hardware, kein Heap): in BEIDEN Konfigurationen real, damit die
+//      eine Formel (1152 B je 16 px Breite) nirgends dupliziert wird. Die Konsumenten duerfen sie
+//      auch im Stub-Fall rufen; das Ergebnis landet dort in No-ops. ----------------------------
+size_t h264RefBytesForWidth(uint16_t width) {
+    return (size_t)1152 * (((size_t)width + 15) / 16);
+}
+
+size_t h264GuardAutoBytesForWidth(uint16_t width) {
+    if (width == 0) return 0;
+    // Referenz-Zeilenpuffer (1152 B je 16 px) + Deblocking-Zwischenpuffer db_tmp (128 B je 16 px + 79 B,
+    // esp_h264_enc_hw_max_db_tmp_buffer_size) + DMA-Deskriptoren/NAL-Scratch (je 64 B, ~1 KB) +
+    // TLSF-Verwaltung der Region (~4 KB) + Ausrichtungsverschnitt. 12 KB Reserve obendrauf.
+    // FHD: 138.304 + 15.488 + 12.288 = 166 KB. Alle internen Encoder-Puffer kommen aus dieser Region
+    // (Hook unten) -- sonst landen sie im LP-SRAM (siehe guard-Hook).
+    size_t mbw = ((size_t)width + 15) / 16;
+    return h264RefBytesForWidth(width) + (mbw * 128 + 79 + 64) + 12 * 1024;
+}
+
+#if WEIRDOS_FEATURE_H264
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_H264=1)
+// ============================================================================
 #include <Arduino.h>
 #include <Preferences.h>
 #include <esp_heap_caps.h>
@@ -27,21 +64,6 @@ static uint32_t s_hookHits     = 0;         // Encoder-Bloecke, die aus der Rese
 
 static const char* kNs  = "cfg";
 static const char* kKey = "h264guardkb";
-
-size_t h264RefBytesForWidth(uint16_t width) {
-    return (size_t)1152 * (((size_t)width + 15) / 16);
-}
-
-size_t h264GuardAutoBytesForWidth(uint16_t width) {
-    if (width == 0) return 0;
-    // Referenz-Zeilenpuffer (1152 B je 16 px) + Deblocking-Zwischenpuffer db_tmp (128 B je 16 px + 79 B,
-    // esp_h264_enc_hw_max_db_tmp_buffer_size) + DMA-Deskriptoren/NAL-Scratch (je 64 B, ~1 KB) +
-    // TLSF-Verwaltung der Region (~4 KB) + Ausrichtungsverschnitt. 12 KB Reserve obendrauf.
-    // FHD: 138.304 + 15.488 + 12.288 = 166 KB. Alle internen Encoder-Puffer kommen aus dieser Region
-    // (Hook unten) -- sonst landen sie im LP-SRAM (siehe guard-Hook).
-    size_t mbw = ((size_t)width + 15) / 16;
-    return h264RefBytesForWidth(width) + (mbw * 128 + 79 + 64) + 12 * 1024;
-}
 
 int h264GuardConfiguredKb() {
     Preferences p;
@@ -206,3 +228,27 @@ extern "C" void* esp_h264_calloc_prefer(uint32_t n, uint32_t size, uint32_t* act
     if (!ptr) ptr = esp_h264_aligned_calloc(4, n, size, actual_size, caps2);
     return ptr;
 }
+
+#else   // ------------------------------------------------------------------
+// ============================================================================
+// Stub: nicht im Build enthalten (WEIRDOS_FEATURE_H264=0).
+// Dieselben Symbole wie oben, triviale Koerper: keine Reserve, kein NVS-Zugriff (die Vorgabe
+// "h264guardkb" bleibt unangetastet fuer einen spaeteren H264-Build), keine esp_h264-Hooks (ohne
+// die Lib gibt es nichts zu ersetzen). Getter: nichts gehalten, nichts angefordert, "aus".
+// ============================================================================
+#include <Arduino.h>   // Serial: EINE ehrliche Boot-Zeile statt der [H264Guard]-Reservierung
+
+void h264GuardBootReserve(size_t, bool) {
+    Serial.println("[H264Guard] H.264 nicht im Build enthalten (WEIRDOS_FEATURE_H264=0) -> keine Video-Reserve");
+}
+int    h264GuardConfiguredKb()        { return 0; }      // "aus" (UI: Reserve beim Boot = Aus)
+void   h264GuardSetConfiguredKb(int)  {}
+bool   h264GuardHeld()                { return false; }
+size_t h264GuardBytes()               { return 0; }
+size_t h264GuardBootBytes()           { return 0; }
+bool   h264GuardSkippedServerOff()    { return false; }
+size_t h264GuardRegionLargest()       { return 0; }
+uint32_t h264GuardHookHits()          { return 0; }
+uint32_t h264GuardCacheErrors()       { return 0; }
+size_t h264GuardEffectiveLargest(size_t) { return 0; }   // kein Encoder -> kein Block, den er bekaeme
+#endif // WEIRDOS_FEATURE_H264

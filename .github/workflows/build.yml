@@ -39,8 +39,16 @@ jobs:
             fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
             flags: "-DWEIRDOS_FEATURE_WIREGUARD=0 -DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_ROUTER=0 -DWEIRDOS_FEATURE_RTSP=0"
             optional: false
-          - name: P4 full (Target noch unbestaetigt)
-            fqbn: "esp32:esp32:esp32p4"
+          # Der reine Netzwerkadapter (VPN-Gateway/Tethering): KEIN Bildpfad im Image. Beweist den
+          # CAMERA-Schnitt -- die esp32-camera-Komponente darf nicht mehr gelinkt werden.
+          - name: S3 no-camera (Netzwerkadapter)
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: "-DWEIRDOS_FEATURE_CAMERA=0 -DWEIRDOS_FEATURE_VIDEO_HTTP=0 -DWEIRDOS_FEATURE_RTSP=0"
+            optional: false
+          # P4-Pico: 16 MB Flash + PSRAM. Mit dem generischen esp32p4-Default (4 MB, 1,25-MB-App)
+          # linkt der Vollausbau zwar, passt aber nicht in die App-Partition (3,0 MB gemessen).
+          - name: P4 full (16 MB, PSRAM)
+            fqbn: "esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=default_16MB,PSRAM=enabled"
             flags: ""
             optional: true
     continue-on-error: ${{ matrix.optional }}

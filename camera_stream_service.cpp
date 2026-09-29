@@ -5,8 +5,13 @@
 // Capture-Task laeuft nur solange Clients da sind, Pacing auf Ziel-fps), aber
 // ueber CameraManager::acquireFrame()/releaseFrame() statt esp_camera direkt.
 // ============================================================================
-#include "camera_stream_service.h"
-#include "camera_manager.h"   // globale FrameSource-Instanz cameraManager
+#include "weirdos_features.h"        // WEIRDOS_FEATURE_CAMERA -- der Schalter dieses Bausteins
+#include "camera_stream_service.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#include "camera_manager.h"          // globale FrameSource-Instanz cameraManager (beide Zweige)
+#if WEIRDOS_FEATURE_CAMERA
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_CAMERA=1)
+// ============================================================================
 #include "camera_frame.h"     // CameraFrame (Zugriff auf Felder im captureLoop)
 
 #include <Arduino.h>          // String (fuer die logEvent-Deklaration/-Nutzung)
@@ -260,3 +265,37 @@ size_t CameraStreamService::copyLatest(uint8_t** dst, size_t* cap, uint32_t* seq
     }
     return out;
 }
+
+#else
+// ============================================================================
+// Stub: Kamera nicht im Build enthalten (WEIRDOS_FEATURE_CAMERA=0)
+// Kein Capture-Task, kein Verteiler-Puffer, kein Mutex. Konsumenten (MJPEG/RTSP/UVC/Konsole)
+// sehen dauerhaft "kein Frame": clientCount 0, copyLatest 0, Sequenzen 0, rawBorrowLatest
+// nullptr. Die globale Instanz bleibt wie im echten Zweig an cameraManager gebunden.
+// ============================================================================
+CameraStreamService cameraStream(cameraManager);
+
+CameraStreamService::CameraStreamService(FrameSource& source)
+    : src_(source), mutex_(nullptr), buf_(nullptr), cap_(0), len_(0), seq_(0), clients_(0),
+      taskRunning_(false), targetFps_(10), dropStale_(true), jpegAcks_(0), rawClients_(0),
+      rawFrame_(nullptr), rawSeq_(0), rawReturned_(false), rawDropped_(0) {}
+
+void     CameraStreamService::begin() {}
+void     CameraStreamService::setTargetFps(int fps) { (void)fps; }
+void     CameraStreamService::addClient() {}
+void     CameraStreamService::removeClient() {}
+int      CameraStreamService::clientCount() const { return 0; }
+size_t   CameraStreamService::copyLatest(uint8_t** dst, size_t* cap, uint32_t* seq) { (void)dst; (void)cap; (void)seq; return 0; }
+uint32_t CameraStreamService::latestSequence() const { return 0; }
+size_t   CameraStreamService::latestLen() const { return 0; }
+void     CameraStreamService::setDropStale(bool on) { (void)on; }
+bool     CameraStreamService::dropStale() const { return true; }
+void     CameraStreamService::addRawClient() {}
+void     CameraStreamService::removeRawClient() {}
+const CameraFrame* CameraStreamService::rawBorrowLatest(uint32_t* seq) { (void)seq; return nullptr; }
+void     CameraStreamService::rawReturn() {}
+uint32_t CameraStreamService::rawSequence() const { return 0; }
+uint32_t CameraStreamService::rawDropped() const { return 0; }
+void     CameraStreamService::captureTrampoline(void* arg) { (void)arg; }
+void     CameraStreamService::captureLoop() {}
+#endif  // WEIRDOS_FEATURE_CAMERA

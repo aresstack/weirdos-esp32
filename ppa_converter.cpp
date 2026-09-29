@@ -1,10 +1,17 @@
 // ============================================================================
 // ppa_converter.cpp  --  siehe ppa_converter.h
+//
+// Baustein-Schalter WEIRDOS_FEATURE_H264 (weirdos_features.h): die PPA ist der Zulieferer des
+// HW-H.264-Encoders (RGB565 -> YUV420), darum haengt sie am selben Schalter.
+//   1 = echte Implementierung (driver/ppa.h, PPA-SRM) -- unveraendert.
+//   0 = Stub am Dateiende (hwAvailable()=false, begin()=false).
+// Der Schalter ist SoC-geklammert (ausserhalb des P4 hart 0), der fruehere Target-Test
+// CONFIG_IDF_TARGET_ESP32P4 steckt also im Schalter: EINE Bedingung, kein zweiter Stub.
 // ============================================================================
+#include "weirdos_features.h"
 #include "ppa_converter.h"
-#include <sdkconfig.h>
 
-#if defined(CONFIG_IDF_TARGET_ESP32P4)
+#if WEIRDOS_FEATURE_H264
 #include "driver/ppa.h"
 #include "esp_heap_caps.h"
 #include "esp_err.h"
@@ -150,6 +157,8 @@ bool PpaConverter::diagScale(const uint8_t* src, uint16_t srcW, uint16_t srcH, u
 }
 
 #else   // ------------------------------------------------------------------
+// Stub: nicht im Build enthalten (WEIRDOS_FEATURE_H264=0; auf Nicht-P4 immer). Keine PPA ->
+// dieselben Symbole, triviale Koerper (hwAvailable() false -> /ppatest meldet "keine PPA").
 PpaConverter::PpaConverter() : client_(nullptr), outBuf_(nullptr), outCap_(0), ready_(false) {}
 PpaConverter::~PpaConverter() {}
 bool PpaConverter::hwAvailable() { return false; }
@@ -159,4 +168,4 @@ bool PpaConverter::rgb565ToYuv420(const uint8_t*, uint16_t, uint16_t, uint16_t, 
                                   const uint8_t**, size_t*, bool) { return false; }
 bool PpaConverter::diagScale(const uint8_t*, uint16_t, uint16_t, uint16_t, uint16_t,
                              size_t*, size_t*, uint16_t*, uint16_t*) { return false; }
-#endif
+#endif // WEIRDOS_FEATURE_H264

@@ -63,7 +63,7 @@ ohne Implementierung (Vorgabe 0).
 
 | Key | Baustein | Braucht | SoC | Status |
 |---|---|---|---|---|
-| `CAMERA` | Sensor + `FrameSource`-Pfad (DVP auf S3, MIPI auf P4) | PSRAM (Laufzeit) | nicht C3/C6 | declared |
+| `CAMERA` | Sensor + `FrameSource`-Pfad (DVP auf S3, MIPI auf P4) + Einzelbild `/capture` | PSRAM (Laufzeit) | nicht C3/C6 | **wired** |
 | `USB_HOST` | USB-OTG-Host (Fundament für MODEM) | — | S2/S3/P4 | declared |
 | `USB_DEVICE` | TinyUSB-Device-Stack (**~48 KB statisch**) | — | S2/S3/P4 | **wired** (bisher `WEIRDOS_USB_DEVICE`) |
 | `WIFI` | STA + AP + Captive-Portal + mDNS | NET | Funk (nicht P4) | declared |
@@ -86,9 +86,9 @@ ohne Implementierung (Vorgabe 0).
 
 | Key | Baustein | Braucht zusätzlich | Status |
 |---|---|---|---|
-| `VIDEO_HTTP` | MJPEG-Stream + `/capture` | HTTP | declared |
+| `VIDEO_HTTP` | MJPEG-Streamserver (Port 81) + `/video.mp4`. Das Einzelbild `/capture` gehört zu CAMERA (+HTTP), damit auch ein RTSP-only-Gerät Snapshots liefert | HTTP | **wired** |
 | `RTSP` | RTSP/RTP-Server (MJPEG; H.264-Mount mit H264) | NET | **wired** |
-| `H264` | HW-Encoder + PPA + fMP4 + interne RAM-Reserve | P4 | declared |
+| `H264` | HW-Encoder + PPA + fMP4 + interne RAM-Reserve (die Boot-Reserve entfällt damit auch auf dem S3, der keinen Encoder hat) | P4 | **wired** |
 | `UVC` | Webcam am PC | USB_DEVICE | declared (heute: Testbild; echte Kamera folgt) |
 
 ### 4.4 Bedienung / Verwaltung

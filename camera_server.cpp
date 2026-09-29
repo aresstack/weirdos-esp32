@@ -7,7 +7,9 @@
 // alle": der zentrale Capture-Task lebt in CameraStreamService; die HTTP-Stream-
 // Tasks unten sind reiner Transport (addClient/copyLatest/removeClient).
 // ============================================================================
-#include "camera_server.h"
+#include "weirdos_features.h"     // WEIRDOS_FEATURE_VIDEO_HTTP -- der Schalter dieses Bausteins
+#include "camera_server.h"        // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_VIDEO_HTTP
 #include "web_ui.h"                // server, streamKey/streamEnabled/multiStreamEnabled/
                                    // streamPort/streamPath, cameraReady, sendNoCacheHeaders,
                                    // isAuthenticated
@@ -846,3 +848,25 @@ void CameraServer::stop() {
 // wie der MJPEG-Stream. Der alte esp_camera_fb_get()-Pfad war am P4 (V4L2) fachlich
 // falsch (Shim lieferte immer NULL). Damit ist camera_server.cpp frei vom Arduino-
 // WebServer `server` (Vorbereitung Phase 3: WeirdHttpEsp-Flip).
+
+#else
+// ============================================================================
+// Stub: HTTP-Videostream nicht im Build enthalten (WEIRDOS_FEATURE_VIDEO_HTTP=0).
+// Dieselben Symbole wie oben, triviale Koerper: der Composition Root (startVideoTransport)
+// referenziert cameraServer und muss weiter linken. Kein esp_http_server, kein
+// esp_https_server, kein MJPEG-/H.264-Task, kein /video.mp4 -- web_ui/cameraStream/
+// h264_*/ppa/tls_selfsigned werden hier nicht einmal eingebunden, der Linker wirft den
+// ganzen Rest heraus. streamRunning()/streamTlsRunning() (inline im Header) melden ueber
+// die Vorgaben streamServer_=nullptr / streamServerTls_=nullptr korrekt "aus".
+// /capture (handleCaptureFrame) lebt in der .ino und wird dort separat gegated.
+// ============================================================================
+#include <Arduino.h>   // Serial
+
+CameraServer cameraServer;
+
+void CameraServer::begin() {
+    Serial.println("Video-Server (HTTP/MJPEG): nicht im Build enthalten (WEIRDOS_FEATURE_VIDEO_HTTP=0)");
+}
+void CameraServer::beginTls(uint16_t) {}   // Meldung kommt bereits aus begin()
+void CameraServer::stop() {}
+#endif // WEIRDOS_FEATURE_VIDEO_HTTP

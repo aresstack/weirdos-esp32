@@ -11,7 +11,7 @@
     "psram":  { "label": "PSRAM bestueckt",          "note": "Board-Eigenschaft (CONFIG_SPIRAM)" }
   },
   "modules": [
-    { "key": "CAMERA",     "layer": "hardware", "label": "Kamera",            "status": "declared", "default": "soc:camera",  "requires": [], "soc": ["camera"], "psram": true,
+    { "key": "CAMERA",     "layer": "hardware", "label": "Kamera",            "status": "wired",    "default": "soc:camera",  "requires": [], "soc": ["camera"], "psram": true,
       "files": ["camera_manager.*", "camera_device.h", "camera_frame.h", "frame_source.h", "camera_compat.h", "esp32s3_camera_device.*", "esp32p4_camera_device.*", "camera_stream_service.*"],
       "hint": "Sensor und Bildpfad. Ohne das ist es keine Kamera. Braucht zur Laufzeit PSRAM." },
     { "key": "USB_HOST",   "layer": "hardware", "label": "USB-Host",          "status": "declared", "default": "soc:usb_otg", "requires": [], "soc": ["usb_otg"],
@@ -45,11 +45,11 @@
     { "key": "NETSCAN",    "layer": "network", "label": "Netz-Diagnose",     "status": "declared", "default": 1, "requires": ["NET"],
       "files": ["net_scan.*", "ui_netscan.cpp"], "cost": { "flash_kb": 46 }, "hint": "Ping/Portscan/Sniff/Kanalscan." },
 
-    { "key": "VIDEO_HTTP", "layer": "video", "label": "MJPEG/HTTP",           "status": "declared", "default": 1, "requires": ["CAMERA", "HTTP"],
-      "files": ["camera_server.*"], "hint": "MJPEG-Stream + /capture." },
+    { "key": "VIDEO_HTTP", "layer": "video", "label": "MJPEG/HTTP",           "status": "wired",    "default": 1, "requires": ["CAMERA", "HTTP"],
+      "files": ["camera_server.*"], "hint": "MJPEG-Streamserver (Port 81) + /video.mp4. Das Einzelbild /capture gehoert zu CAMERA (+HTTP), damit auch RTSP-only-Geraete Snapshots liefern." },
     { "key": "RTSP",       "layer": "video", "label": "RTSP",                 "status": "wired",    "default": 1, "requires": ["CAMERA", "NET"],
       "files": ["rtsp_server.*"], "cost": { "flash_kb": 41 }, "hint": "RTSP/RTP-Server. Der genuegsame Streamingweg." },
-    { "key": "H264",       "layer": "video", "label": "H.264",                "status": "declared", "default": "soc:h264hw", "requires": ["CAMERA"], "soc": ["h264hw"],
+    { "key": "H264",       "layer": "video", "label": "H.264",                "status": "wired",    "default": "soc:h264hw", "requires": ["CAMERA"], "soc": ["h264hw"],
       "files": ["h264_encoder.*", "h264_fmp4.*", "h264_guard.*", "ppa_converter.*"], "cost": { "dma_ram_kb": 166 }, "hint": "HW-Encoder + PPA + fMP4. Nur P4." },
     { "key": "UVC",        "layer": "video", "label": "USB-Webcam",           "status": "declared", "default": "feature:USB_DEVICE", "requires": ["CAMERA", "USB_DEVICE"],
       "files": ["usb_device_service.*", "usb_uvc_testimage.h"], "hint": "Das Board als Webcam am PC. Heute Testbild; echte Kamera folgt." },
@@ -80,14 +80,44 @@
   "runtime_conflicts": [
     { "modules": ["USB_HOST", "USB_DEVICE"], "on": ["esp32s3", "esp32s2"], "note": "Ein USB-Port: es laeuft nur eines (PC-Erkennung entscheidet). Auf dem P4 beides (zwei USB)." }
   ],
+  "profiles_note": "Ein Profil ist ein Satz Bausteine; das Tool setzt daraus die Haken (SoC-Grenzen werden beim Anwenden gefiltert: WIFI faellt auf dem P4 weg usw.). 'custom' = Handauswahl. Bausteine mit status 'planned' werden angezeigt, aber ausgegraut.",
   "profiles": [
-    { "id": "webcam",       "label": "USB-Webcam",               "modules": ["CAMERA", "USB_DEVICE", "UVC"], "note": "Kein IP-Stack. Kleinstes Bild-Profil." },
-    { "id": "rtsp-wifi",    "label": "RTSP-Kamera (WLAN)",        "modules": ["CAMERA", "RTSP", "NET", "WIFI", "HTTP", "WEBUI"], "note": "WEBUI nur zum Einrichten; danach CONSOLE-los headless." },
-    { "id": "rtsp-lte",     "label": "RTSP-Kamera (LTE)",         "modules": ["CAMERA", "RTSP", "NET", "USB_HOST", "MODEM", "CONSOLE"], "note": "Auf dem P4 der typische Feldbetrieb." },
-    { "id": "vpn-gateway",  "label": "VPN-Gateway",               "modules": ["NET", "WIFI", "USB_HOST", "MODEM", "WIREGUARD", "IPSEC", "CRYPTO_AES", "ROUTER", "HTTP", "WEBUI", "TLS_SERVER"], "note": "Kein Bild. Uplink + Tunnel + Weitergabe." },
-    { "id": "usb-tether",   "label": "USB-Tethering",             "modules": ["NET", "USB_HOST", "MODEM", "USB_DEVICE", "USB_NCM", "ROUTER"], "note": "Nur P4 (Host UND Device gleichzeitig). USB_NCM noch geplant." },
-    { "id": "wifi-hotspot", "label": "WLAN-Hotspot (Modem)",      "modules": ["NET", "USB_HOST", "MODEM", "WIFI", "ROUTER", "HTTP", "WEBUI"], "note": "Nur mit Funk (nicht P4)." },
-    { "id": "doorbell",     "label": "Tuerklingel",               "modules": ["CAMERA", "VIDEO_HTTP", "RTSP", "NET", "WIFI", "HTTP", "WEBUI", "DETECTION", "ACTUATOR", "AUDIO"], "note": "DETECTION/ACTUATOR/AUDIO geplant." },
-    { "id": "full",         "label": "Vollausbau (Entwickler)",   "modules": ["*"], "note": "Alles, was der SoC kann. Heap-Warnung." }
+    { "id": "custom",           "label": "Benutzerdefiniert",                    "modules": [],
+      "note": "Handauswahl. Jede Aenderung an den Haken eines anderen Profils macht daraus Benutzerdefiniert." },
+
+    { "id": "webcam",           "label": "USB-Webcam",                           "modules": ["CAMERA", "USB_DEVICE", "UVC"],
+      "note": "Das Board als Webcam am PC. Kein IP-Stack, kein Funk -- das kleinste Bild-Profil." },
+    { "id": "browser-cam",      "label": "Browser-Kamera (MJPEG/HTTPS)",         "modules": ["CAMERA", "NET", "WIFI", "HTTP", "WEBUI", "VIDEO_HTTP", "TLS_SERVER", "BACKUP"],
+      "note": "Livebild im Browser ueber WLAN, Verwaltung per Weboberflaeche." },
+    { "id": "rtsp-wifi",        "label": "RTSP-Kamera (WLAN)",                    "modules": ["CAMERA", "NET", "WIFI", "RTSP", "HTTP", "WEBUI", "BACKUP"],
+      "note": "Fuer Rekorder/NVR ueber WLAN. Weboberflaeche nur zum Einrichten." },
+    { "id": "rtsp-lte",         "label": "RTSP-Kamera (LTE)",                     "modules": ["CAMERA", "NET", "USB_HOST", "MODEM", "RTSP", "HTTP", "WEBUI", "CONSOLE", "DYNDNS", "TLS_CLIENT", "BACKUP"],
+      "note": "Feldkamera am Mobilfunk mit DynDNS. Auf dem P4 der typische Betrieb." },
+    { "id": "headless-lte-cam", "label": "Headless LTE-Kamera (nur Konsole)",     "modules": ["CAMERA", "NET", "USB_HOST", "MODEM", "RTSP", "CONSOLE"],
+      "note": "Ohne Weboberflaeche: am wenigsten RAM. Einrichtung ueber die serielle Konsole." },
+    { "id": "cam-vpn-home",     "label": "Kamera mit VPN-Heimzugang",             "modules": ["CAMERA", "NET", "WIFI", "USB_HOST", "MODEM", "RTSP", "VIDEO_HTTP", "HTTP", "WEBUI", "WIREGUARD", "DYNDNS", "TLS_CLIENT", "TLS_SERVER", "OTA", "BACKUP"],
+      "note": "Die Kamera ist nur durch den eigenen WireGuard-Tunnel erreichbar (kein offener Port)." },
+    { "id": "surveillance-lte", "label": "Ueberwachungskamera LTE (Feld, H.264)", "modules": ["CAMERA", "NET", "USB_HOST", "MODEM", "RTSP", "H264", "WIREGUARD", "ROUTER", "HTTP", "WEBUI", "CONSOLE", "DYNDNS", "TLS_CLIENT", "OTA", "BACKUP"],
+      "note": "P4-Vollprofil fuer draussen: HW-H.264 ueber LTE, VPN-Rueckkanal, Fernupdate." },
+    { "id": "doorbell",         "label": "Tuerklingel / Gegensprechanlage",       "modules": ["CAMERA", "NET", "WIFI", "VIDEO_HTTP", "RTSP", "HTTP", "WEBUI", "TLS_SERVER", "DETECTION", "ACTUATOR", "AUDIO"],
+      "note": "Bild + Klingeltaster + Tueroeffner. DETECTION/ACTUATOR/AUDIO sind geplant (ausgegraut)." },
+
+    { "id": "vpn-gateway",      "label": "VPN-Gateway (WireGuard)",               "modules": ["NET", "WIFI", "USB_HOST", "MODEM", "WIREGUARD", "ROUTER", "HTTP", "WEBUI", "TLS_SERVER", "DYNDNS", "TLS_CLIENT", "OTA", "BACKUP"],
+      "note": "Kein Bild. Uplink (WLAN oder LTE) + Tunnel + Weitergabe ins eigene Netz." },
+    { "id": "vpn-client-ipsec", "label": "IPsec-Client (Firmennetz / FRITZ!Box)",  "modules": ["NET", "WIFI", "USB_HOST", "MODEM", "IPSEC", "CRYPTO_AES", "ROUTER", "HTTP", "WEBUI", "TLS_SERVER", "CONSOLE", "BACKUP"],
+      "note": "Haengt sich per IKEv2 in ein fremdes VPN und reicht es weiter. Braucht PSRAM." },
+    { "id": "usb-tether",       "label": "USB-Tethering (LTE -> PC)",              "modules": ["NET", "USB_HOST", "MODEM", "USB_DEVICE", "USB_NCM", "ROUTER", "CONSOLE"],
+      "note": "Nur P4 (Host UND Device gleichzeitig). USB_NCM ist noch geplant." },
+    { "id": "wifi-hotspot",     "label": "WLAN-Hotspot (LTE -> WLAN)",             "modules": ["NET", "USB_HOST", "MODEM", "WIFI", "ROUTER", "HTTP", "WEBUI", "DYNDNS", "TLS_CLIENT"],
+      "note": "Mobilfunk als WLAN teilen. Nur mit Funk (nicht P4)." },
+    { "id": "wifi-repeater",    "label": "WLAN-Repeater / Bridge",                 "modules": ["NET", "WIFI", "ROUTER", "HTTP", "WEBUI"],
+      "note": "STA + AP: ein fremdes WLAN weiterreichen. Nur mit Funk." },
+    { "id": "net-probe",        "label": "Netzwerk-Diagnosegeraet",                "modules": ["NET", "WIFI", "NETSCAN", "BLE", "HTTP", "WEBUI", "CONSOLE"],
+      "note": "Ping/Portscan/Sniffer/Kanalscan + BLE-Suche. Kein Bild." },
+    { "id": "setup-only",       "label": "Einrichtungs-Image (minimal)",           "modules": ["NET", "WIFI", "HTTP", "WEBUI", "BACKUP", "OTA"],
+      "note": "Nur Weboberflaeche und Update -- zum Einrichten, danach ein anderes Profil per OTA." },
+
+    { "id": "full",             "label": "Vollausbau (Entwickler)",                "modules": ["*"],
+      "note": "Alles, was der SoC kann. Passt auf keinem Board dauerhaft in Flash UND Heap -- nur zum Entwickeln." }
   ]
 }

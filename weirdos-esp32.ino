@@ -727,7 +727,11 @@ void setup() {
     logEvent("System gestartet");
 
     initializeStatusLed();
+#if WEIRDOS_FEATURE_CAMERA
     initializeCamera();
+#else
+    Serial.println("Kamera: nicht im Build enthalten (WEIRDOS_FEATURE_CAMERA=0) -- Geraet laeuft ohne Bildpfad.");
+#endif
     logHeapMark("nach Kamera");
     // H.264-Guard FRUEH sichern (nach Kamera, VOR HTTP/USB/PPP) -> haelt einen zusammenhaengenden
     // internen Block, bevor ihn die spaeteren Subsysteme zerstueckeln. Default "Automatisch":
@@ -897,7 +901,11 @@ void startVideoTransport() {
         return;
     }
 #endif
+#if WEIRDOS_FEATURE_VIDEO_HTTP
     if (streamType == "http") { cameraServer.begin(); return; }
+#else
+    if (streamType == "http") { Serial.println("Video-Server: HTTP gewaehlt, aber nicht im Build enthalten (WEIRDOS_FEATURE_VIDEO_HTTP=0)."); return; }
+#endif
     Serial.println("Video-Server aus (Stream-Transport: aus).");
 }
 
@@ -2155,8 +2163,9 @@ void persistLiveCameraValues() {
 
 // Legacy-DVP-Pinbelegung. TOTER CODE (kein Aufrufer mehr -- der DVP-Init lebt in
 // Esp32S3DvpCamera). Bleibt fuer den S3-Build erhalten, aber auf dem P4 gibt es
-// weder camera_config_t noch CAM_PIN_* -> board-bedingt ausklammern.
-#if !defined(CONFIG_IDF_TARGET_ESP32P4)
+// weder camera_config_t noch CAM_PIN_* -> board-bedingt ausklammern. Ohne Kamera-Baustein
+// (WEIRDOS_FEATURE_CAMERA=0) liefert camera_compat.h nur den P4-Shim -> ebenfalls raus.
+#if WEIRDOS_FEATURE_CAMERA && !defined(CONFIG_IDF_TARGET_ESP32P4)
 void fillCameraPins(camera_config_t& config) {
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
@@ -2688,17 +2697,27 @@ void startWebServer() {
     g_web.route(HttpMethod::GET,  "/.well-known/acme-challenge/{token}", handleAcmeChallenge);
     g_web.route(HttpMethod::POST, "/ap-security-save", requireSession(handleApSecuritySave, AuthFail::Json));
     // /capture: neutraler WeirdHttp-Handler ueber cameraManager/FrameSource (kein esp_camera-Legacy).
+#if WEIRDOS_FEATURE_CAMERA
+    // Einzelbild gehoert zur KAMERA (billig, kein eigener Server) -- nicht zum MJPEG-Streamserver:
+    // auch ein RTSP-only-Geraet soll Snapshots liefern (RTSP kennt keine Einzelbilder).
     g_web.route(HttpMethod::GET, "/capture", requireSession(handleCaptureFrame, AuthFail::Json));
+#endif
     // Diagnose: EIN roher ISP-Frame -> HW-H.264-Encoder -> JSON-Report. Beweist die Kamera->Encoder-
     // Pipeline auf echter Hardware, bevor Transport (fMP4/RTSP) existiert. Stream muss dabei aus sein.
+#if WEIRDOS_FEATURE_H264
     g_web.route(HttpMethod::GET, "/h264probe", requireSession(handleH264Probe, AuthFail::Json));
+#endif
     // Heap-Test/Steuerung fuer die hohe H.264-Aufloesung: Boot-Guard setzen (?bootkb=N) + Live-Test
     // (?test=1: Guard freigeben -> 720p/FHD-hw_new probieren -> wieder reservieren).
+#if WEIRDOS_FEATURE_H264
     g_web.route(HttpMethod::GET, "/h264guard", requireSession(handleH264Guard, AuthFail::Json));
+#endif
     // Heap-Map (Diagnose): aggregierte Zahlen + Boot-Zeitleiste, siehe handleHeapMap().
     g_web.route(HttpMethod::GET, "/heapmap", requireSession(handleHeapMap, AuthFail::Json));
     // Isolierter PPA-Test: synthetisches Bild -> PPA-Skalierung -> misst gefuellte Geometrie (Diagnose).
+#if WEIRDOS_FEATURE_H264
     g_web.route(HttpMethod::GET, "/ppatest", requireSession(handlePpaTest, AuthFail::Json));
+#endif
     g_web.route(HttpMethod::POST, "/video-config", requireSession(handleVideoConfig, AuthFail::Page));   // VideoServer-Config (HTML-Bestaetigung)
     // Geraete-Namespace (Linux-/dev-artig): EIN generischer Capability-API fuer alle Geraete.
     // MIGRIERT auf WeirdHttp (Batch 1): Auth in requireSession-Middleware, Handler (req,res).

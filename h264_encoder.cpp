@@ -1,10 +1,18 @@
 // ============================================================================
 // h264_encoder.cpp  --  siehe h264_encoder.h
+//
+// Baustein-Schalter WEIRDOS_FEATURE_H264 (weirdos_features.h):
+//   1 = echte Implementierung (HW-Encoder esp_h264_enc_single_hw, zieht libespressif__esp_h264.a
+//       in den Link) -- unveraendert.
+//   0 = Stub am Dateiende (hwAvailable()=false, begin()=false, probe*=0/-99).
+// Der Schalter ist bereits SoC-geklammert (ausserhalb des P4 hart 0, weirdos_features.h), der
+// fruehere Target-Test CONFIG_IDF_TARGET_ESP32P4 steckt also im Schalter: EINE Bedingung, kein
+// zweiter Stub. Auf dem S3 entsteht damit exakt der bisherige Stub-Build.
 // ============================================================================
+#include "weirdos_features.h"
 #include "h264_encoder.h"
-#include <sdkconfig.h>
 
-#if defined(CONFIG_IDF_TARGET_ESP32P4)
+#if WEIRDOS_FEATURE_H264
 // ---------------------------------------------------------------------------
 // Echter P4-Pfad: HW-H.264-Encoder (esp_h264_enc_single_hw)
 // ---------------------------------------------------------------------------
@@ -187,7 +195,9 @@ void H264Encoder::forceIdr() {
 }
 
 #else   // ------------------------------------------------------------------
-// Nicht-P4: kein HW-H.264-Encoder -> Stubs (das Feature wird dort nie angeboten).
+// Stub: nicht im Build enthalten (WEIRDOS_FEATURE_H264=0; auf Nicht-P4 immer). Kein HW-H.264-
+// Encoder -> dieselben Symbole, triviale Koerper (das Feature wird nie angeboten: hwAvailable()
+// false -> Konsumenten antworten 503/"kein HW-H.264-Encoder" wie bisher auf dem S3).
 H264Encoder::H264Encoder()
     : enc_(nullptr), param_(nullptr), outBuf_(nullptr), outCap_(0),
       w_(0), h_(0), pts_(0), gop_(0), gopAlt_(false), ready_(false), lastErr_(0), lastStage_(0) {}
@@ -201,4 +211,4 @@ bool H264Encoder::encode(const uint8_t*, size_t, const uint8_t**, size_t*, bool*
 void H264Encoder::setBitrate(uint32_t) {}
 void H264Encoder::setFps(uint8_t) {}
 void H264Encoder::forceIdr() {}
-#endif
+#endif // WEIRDOS_FEATURE_H264
