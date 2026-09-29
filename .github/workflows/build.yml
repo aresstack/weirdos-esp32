@@ -79,11 +79,11 @@ jobs:
             optional: false
           # Die USB-Webcam: TinyUSB-Geraetestack (USBMode=default = USB-OTG statt HW-CDC) + UVC-Klasse.
           # Der Stack kostet ~48 KB statisches RAM -- deshalb ein eigener Baustein, nie Default.
-          # Erst optional (der Pfad wurde in der CI noch nie gebaut), nach dem ersten gruenen Lauf blockierend.
+          # Seit Lauf 14 gruen -> blockierend.
           - name: S3 webcam (USB-OTG + UVC)
             fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=default,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
             flags: "-DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0"
-            optional: true
+            optional: false
           # P4-Pico: 16 MB Flash + PSRAM. Mit dem generischen esp32p4-Default (4 MB, 1,25-MB-App)
           # linkt der Vollausbau zwar, passt aber nicht in die App-Partition. Groesste
           # 16-MB-App-Partition des Cores: app3M_fat9M_16MB (3 MB App). Gemessen (Stand 85d7fc9):
