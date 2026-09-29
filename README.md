@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="img/banner.png" width="520" alt="WeirdOS" />
+</p>
+
 # WeirdOS
 
 _Repo `aresstack/weirdos-esp32`. „WeirdOS" ist der Produktname (AP-SSID, Hostname `weirdos`); der Repo- und Sketch-Name folgt der Kleinschreib-Konvention._
