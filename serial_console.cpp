@@ -6,7 +6,63 @@
 // reset/test rufen synchrone Treiber-Funktionen und blockieren die loop() kurz
 // (wie der jeweilige Web-Handler auch) -- das ist fuer eine interaktive Konsole ok.
 // ============================================================================
-#include "serial_console.h"
+#include "weirdos_features.h"  // WEIRDOS_FEATURE_CONSOLE -- der Schalter dieses Bausteins
+#include "serial_console.h"    // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#include <Arduino.h>
+#include <Preferences.h>       // Baudrate (NVS "cfg"/"uartbaud")
+
+// ---- In JEDEM Build vorhanden: Baudrate + Schnittstellen-Angabe -------------------------------
+// Serial.begin(serialConsoleBaud()) in setup() und die UART-Seite (Einrichtung > Setup > UART)
+// brauchen das auch ohne Kommando-Konsole: die Leitung bleibt Log-Ausgang. Einzige Definition,
+// bewusst VOR dem Schalter (kein Stub-Duplikat, das auseinanderlaufen koennte).
+// ---- Baudrate (NVS "cfg"/"uartbaud"), wirkt beim naechsten Serial.begin() = Neustart ----------
+static const uint32_t kBaudDefault = 115200;
+static bool isKnownBaud(uint32_t b) {
+    static const uint32_t ok[] = {9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600};
+    for (size_t i = 0; i < sizeof(ok) / sizeof(ok[0]); i++) if (ok[i] == b) return true;
+    return false;
+}
+
+uint32_t serialConsoleBaud() {
+    Preferences p;
+    p.begin("cfg", true);
+    uint32_t b = p.getUInt("uartbaud", kBaudDefault);
+    p.end();
+    return isKnownBaud(b) ? b : kBaudDefault;
+}
+
+bool serialConsoleSetBaud(uint32_t baud) {
+    if (!isKnownBaud(baud)) return false;
+    Preferences p;
+    p.begin("cfg", false);
+    p.putUInt("uartbaud", baud);
+    p.end();
+    return true;
+}
+
+// Ehrliche Angabe, WORAN die Konsole haengt: bei "USB CDC On Boot" ist Serial der native
+// USB-Serial/JTAG-Port (virtueller COM-Port) -- die Baudrate ist dort nur ein Nominalwert ohne
+// Wirkung auf der Leitung. Sonst UART0 ueber einen USB-UART-Wandler, Baudrate wirksam.
+const char* serialConsoleInterfaceName() {
+#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+    return "USB-Serial/JTAG (nativer USB-Port, virtueller COM-Port)";
+#else
+    return "UART0 (ueber USB-UART-Wandler)";
+#endif
+}
+
+bool serialConsoleBaudMatters() {
+#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+    return false;
+#else
+    return true;
+#endif
+}
+
+#if WEIRDOS_FEATURE_CONSOLE
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_CONSOLE=1): Zeilen-Parser + Kommando-Dispatch
+// ============================================================================
 
 #include <Arduino.h>
 #include <Preferences.h>       // Baudrate (NVS "cfg"/"uartbaud")
@@ -234,49 +290,6 @@ const char* serialConsoleHelpText() { return kHelpText; }
 
 static void cmdHelp() { Serial.println(kHelpText); }
 
-// ---- Baudrate (NVS "cfg"/"uartbaud"), wirkt beim naechsten Serial.begin() = Neustart ----------
-static const uint32_t kBaudDefault = 115200;
-static bool isKnownBaud(uint32_t b) {
-    static const uint32_t ok[] = {9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600};
-    for (size_t i = 0; i < sizeof(ok) / sizeof(ok[0]); i++) if (ok[i] == b) return true;
-    return false;
-}
-
-uint32_t serialConsoleBaud() {
-    Preferences p;
-    p.begin("cfg", true);
-    uint32_t b = p.getUInt("uartbaud", kBaudDefault);
-    p.end();
-    return isKnownBaud(b) ? b : kBaudDefault;
-}
-
-bool serialConsoleSetBaud(uint32_t baud) {
-    if (!isKnownBaud(baud)) return false;
-    Preferences p;
-    p.begin("cfg", false);
-    p.putUInt("uartbaud", baud);
-    p.end();
-    return true;
-}
-
-// Ehrliche Angabe, WORAN die Konsole haengt: bei "USB CDC On Boot" ist Serial der native
-// USB-Serial/JTAG-Port (virtueller COM-Port) -- die Baudrate ist dort nur ein Nominalwert ohne
-// Wirkung auf der Leitung. Sonst UART0 ueber einen USB-UART-Wandler, Baudrate wirksam.
-const char* serialConsoleInterfaceName() {
-#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
-    return "USB-Serial/JTAG (nativer USB-Port, virtueller COM-Port)";
-#else
-    return "UART0 (ueber USB-UART-Wandler)";
-#endif
-}
-
-bool serialConsoleBaudMatters() {
-#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
-    return false;
-#else
-    return true;
-#endif
-}
 
 static void cmdConnect()    { Serial.println(modemLinkConnect()); }     // neutrale Weiche (ppp|ecm)
 static void cmdDisconnect() { Serial.println(modemLinkDisconnect()); }  // neutrale Weiche (ppp|ecm)
@@ -1172,3 +1185,18 @@ void serialConsoleTick() {
         }
     }
 }
+#else
+// ============================================================================
+// Stub (WEIRDOS_FEATURE_CONSOLE=0): keine Kommando-Konsole im Build. Die serielle Leitung bleibt
+// reiner Log-Ausgang, Eingaben werden verworfen. Kein Kommando-Dispatch -> nichts von Modem / IPsec /
+// WireGuard / Zonen / Backup / ACME wird von hier aus referenziert (das ist der Flash-Gewinn: der
+// Dispatcher zog bisher JEDEN Baustein an, auch abgewaehlte).
+// ============================================================================
+static const char* kConsoleNotBuilt = "Serielle Konsole nicht im Build enthalten (WEIRDOS_FEATURE_CONSOLE=0)";
+void serialConsoleTick() {
+    static bool s_said = false;
+    if (!s_said) { s_said = true; Serial.printf("\r\n[%s]\r\n", kConsoleNotBuilt); }
+    while (Serial.available() > 0) { if (Serial.read() < 0) break; }   // Eingaben verwerfen, Puffer leeren
+}
+const char* serialConsoleHelpText() { return kConsoleNotBuilt; }
+#endif // WEIRDOS_FEATURE_CONSOLE

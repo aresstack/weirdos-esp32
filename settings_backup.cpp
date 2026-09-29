@@ -1,7 +1,12 @@
 // ============================================================================
 // settings_backup.cpp -- siehe settings_backup.h. Generische NVS-Iteration.
 // ============================================================================
-#include "settings_backup.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_BACKUP -- der Schalter dieses Bausteins
+#include "settings_backup.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_BACKUP
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_BACKUP=1)
+// ============================================================================
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "mbedtls/base64.h"
@@ -111,3 +116,11 @@ int settingsBackupImport(const String& body) {
     }
     return n;
 }
+#else
+// Stub (WEIRDOS_FEATURE_BACKUP=0): keine NVS-Sicherung im Build. Export liefert bewusst KEINEN
+// "WEIRDOS-BACKUP v1"-Kopf, damit ein Vollbuild die Datei beim Einspielen als Nicht-Sicherung
+// ablehnt; Import spielt nichts ein (0 Eintraege) und nennt den Grund auf der Konsole.
+static const char* kBackupNotBuilt = "Sicherung nicht im Build enthalten (WEIRDOS_FEATURE_BACKUP=0)";
+String settingsBackupExport() { return String(kBackupNotBuilt) + "\n"; }
+int    settingsBackupImport(const String& body) { (void)body; Serial.println(kBackupNotBuilt); return 0; }
+#endif // WEIRDOS_FEATURE_BACKUP

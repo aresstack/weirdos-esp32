@@ -1,7 +1,12 @@
 // ============================================================================
 // tls_selfsigned.cpp  --  siehe tls_selfsigned.h
 // ============================================================================
-#include "tls_selfsigned.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_TLS_SERVER -- der Schalter dieses Bausteins
+#include "tls_selfsigned.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_TLS_SERVER
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_TLS_SERVER=1) -- self-signed-Erzeugung (mbedTLS PK/X.509)
+// ============================================================================
 
 #include <cstring>
 #include <cstdlib>
@@ -102,3 +107,11 @@ done:
     mbedtls_pk_free(&key);
     return ok;
 }
+#else
+// Stub (WEIRDOS_FEATURE_TLS_SERVER=0): keine Zertifikatserzeugung -> false. cert_store (Stub) und
+// camera_server (HTTPS-MJPEG: "cert gen failed, TLS disabled") behandeln das bereits sauber.
+bool weirdosGenSelfSignedCert(String& certPemOut, String& keyPemOut, const char* cn) {
+    (void)cn; certPemOut = ""; keyPemOut = "";
+    return false;
+}
+#endif // WEIRDOS_FEATURE_TLS_SERVER

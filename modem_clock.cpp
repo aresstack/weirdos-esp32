@@ -1,22 +1,21 @@
 // ============================================================================
 // modem_clock.cpp -- siehe modem_clock.h
+//
+// Baustein MODEM (weirdos_features.h): NUR modemClockSync() braucht den AT-Kanal des Modems.
+// Die reinen Uhr-Helfer (systemClockValid/Iso/IsoOf, modemClockLastSyncMs) sind KEIN Modem-Wissen
+// -- acme_client, die Zertifikatsanzeige, die serielle Konsole und die .ino nutzen sie auch ohne
+// Modem -- und sind deshalb in BEIDEN Zweigen ein und dieselbe Definition (kein Stub-Duplikat,
+// das auseinanderlaufen koennte). Bei WEIRDOS_FEATURE_MODEM=0 liefert modemClockSync() false und
+// die Uhr bleibt ungesetzt (1970), bis eine andere Quelle sie setzt; systemClockValid() meldet
+// das ehrlich.
 // ============================================================================
-#include "modem_clock.h"
-#include "ec200a_modem.h"   // modemAtTest
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_MODEM -- der Schalter dieses Bausteins
+#include "modem_clock.h"        // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
 #include <sys/time.h>
 
 static uint32_t s_lastSyncMs = 0;
 
-// Tage seit 1970-01-01 fuer ein Kalenderdatum (proleptisch gregorianisch, ohne libc-Zeitzone).
-static long daysFromCivil(int y, int m, int d) {
-    y -= m <= 2;
-    long era = (y >= 0 ? y : y - 399) / 400;
-    long yoe = y - era * 400;
-    long doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-    long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    return era * 146097 + doe - 719468;
-}
-
+// ---- Reine Uhr-Helfer: in beiden Zweigen identisch und funktional --------------------------
 bool systemClockValid() {
     time_t now = time(nullptr);
     return now > (time_t)1704067200;   // 2024-01-01 -- alles davor ist die ungesetzte Uhr (1970)
@@ -36,6 +35,22 @@ String systemClockIsoOf(time_t tt) {
 String systemClockIso() {
     if (!systemClockValid()) return "-";
     return systemClockIsoOf(time(nullptr));
+}
+
+#if WEIRDOS_FEATURE_MODEM
+// ============================================================================
+// Echte Netzzeit-Synchronisation (WEIRDOS_FEATURE_MODEM=1) -- unveraendert
+// ============================================================================
+#include "ec200a_modem.h"   // modemAtTest
+
+// Tage seit 1970-01-01 fuer ein Kalenderdatum (proleptisch gregorianisch, ohne libc-Zeitzone).
+static long daysFromCivil(int y, int m, int d) {
+    y -= m <= 2;
+    long era = (y >= 0 ? y : y - 399) / 400;
+    long yoe = y - era * 400;
+    long doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
 }
 
 bool modemClockSync(uint8_t ifNum, uint8_t epOut, uint8_t epIn) {
@@ -70,3 +85,15 @@ bool modemClockSync(uint8_t ifNum, uint8_t epOut, uint8_t epIn) {
                   systemClockIso().c_str(), sign == '-' ? '-' : '+', (tz * 15) / 60, (tz * 15) % 60);
     return true;
 }
+
+#else  // !WEIRDOS_FEATURE_MODEM
+// ============================================================================
+// Stub: ohne Modem keine Netzzeit (WEIRDOS_FEATURE_MODEM=0). Kein AT-Kanal, kein settimeofday;
+// s_lastSyncMs bleibt 0 ("nie"). Die Helfer oben bleiben voll funktional.
+// ============================================================================
+bool modemClockSync(uint8_t ifNum, uint8_t epOut, uint8_t epIn) {
+    (void)ifNum; (void)epOut; (void)epIn;
+    return false;
+}
+
+#endif // WEIRDOS_FEATURE_MODEM

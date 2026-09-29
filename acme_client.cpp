@@ -1,7 +1,12 @@
 // ============================================================================
 // acme_client.cpp -- siehe acme_client.h. RFC 8555, JWS ES256, HTTP-01.
 // ============================================================================
-#include "acme_client.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_ACME -- der Schalter dieses Bausteins
+#include "acme_client.h"            // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_ACME
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_ACME=1)
+// ============================================================================
 #include "http_transport.h"
 #include "network_registry.h"
 #include "modem_clock.h"
@@ -474,3 +479,34 @@ void acmeTick(bool linkUp) {
     s_lastAutoAttemptMs = now;
     acmeStart(acmeHasCert() ? "Erneuerung (< 30 Tage)" : "Erstbezug");
 }
+#else
+// ============================================================================
+// Stub (WEIRDOS_FEATURE_ACME=0): kein Let's-Encrypt-Client im Build. Jede Header-Funktion bleibt
+// definiert, damit .ino / serial_console / cert_store / ui_system unveraendert linken. Kein mbedTLS-
+// PK/CSR/Base64, kein Worker-Task, kein NVS-Zugriff -- gespeicherte ACME-Daten bleiben fuer einen
+// spaeteren Build mit ACME erhalten. acmeAppResolveEgress()/logEvent() liefert weiterhin die .ino.
+// ============================================================================
+static const char* kAcmeNotBuilt = "Let's Encrypt nicht im Build enthalten (WEIRDOS_FEATURE_ACME=0)";
+static AcmeConfig  s_cfgStub;                 // enabled=false -> cert_store/.ino sehen "ACME aus"
+static const String s_emptyStub;
+
+void   acmeLoad() {}
+const  AcmeConfig& acmeConfig() { return s_cfgStub; }
+void   acmeSaveConfig(const AcmeConfig& c) { (void)c; }   // bewusst nicht uebernehmen: enabled bleibt false
+bool   acmeHasCert() { return false; }
+const  String& acmeCertPem() { return s_emptyStub; }
+const  String& acmeKeyPem() { return s_emptyStub; }
+time_t acmeCertNotAfter() { return 0; }
+String acmeCertSubject() { return String(); }
+bool   acmeCertUsable() { return false; }
+bool   acmeStart(const char* reason) { (void)reason; Serial.println(kAcmeNotBuilt); return false; }
+bool   acmeRunning() { return false; }
+String acmeStateText() { return String(kAcmeNotBuilt); }
+String acmeLastError() { return String(); }
+bool   acmeLastOk() { return false; }
+uint32_t acmeLastRunMs() { return 0; }
+void   acmeTick(bool linkUp) { (void)linkUp; }
+bool   acmeRestartPending() { return false; }
+void   acmeClearCert() {}
+bool   acmeChallengeLookup(const String& token, String& keyAuthOut) { (void)token; keyAuthOut = ""; return false; }
+#endif // WEIRDOS_FEATURE_ACME

@@ -2,7 +2,10 @@
 // weird_http_esp.cpp  --  siehe weird_http_esp.h
 // ============================================================================
 #include "weird_http_esp.h"
+#include "weirdos_features.h"     // WEIRDOS_FEATURE_TLS_SERVER: HTTPS-Zweig von begin()
+#if WEIRDOS_FEATURE_TLS_SERVER
 #include <esp_https_server.h>
+#endif
 #include <lwip/sockets.h>
 #include <lwip/inet.h>
 #include <list>
@@ -386,6 +389,13 @@ void WeirdHttpEsp::registerWildcards() {
 void WeirdHttpEsp::begin() {
     if (handle_) return;
 
+#if !WEIRDOS_FEATURE_TLS_SERVER
+    // Baustein TLS_SERVER abgewaehlt: kein esp_https_server im Image. configure(443, true) ist dann
+    // ein Konfigurationsfehler, kein Startfehler -- running() bleibt false, lastError_ nennt es, und
+    // die .ino faellt wie bei jedem HTTPS-Fehlstart auf HTTP:80 zurueck (Zugang nie verlieren).
+    if (tls_) { lastError_ = ESP_ERR_NOT_SUPPORTED; handle_ = nullptr; return; }
+    if (false) {
+#else
     if (tls_) {
         httpd_ssl_config_t c = HTTPD_SSL_CONFIG_DEFAULT();
         c.servercert     = (const uint8_t*)certPem_.c_str();
@@ -411,6 +421,7 @@ void WeirdHttpEsp::begin() {
         c.httpd.lru_purge_enable = true;
         lastError_ = httpd_ssl_start(&handle_, &c);
         if (lastError_ != ESP_OK) { handle_ = nullptr; return; }
+#endif // WEIRDOS_FEATURE_TLS_SERVER
     } else {
         httpd_config_t c = HTTPD_DEFAULT_CONFIG();
         c.server_port      = port_;

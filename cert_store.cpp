@@ -1,5 +1,10 @@
 // cert_store.cpp -- siehe cert_store.h.
-#include "cert_store.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_TLS_SERVER -- der Schalter dieses Bausteins
+#include "cert_store.h"   // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_TLS_SERVER
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_TLS_SERVER=1)
+// ============================================================================
 #include "tls_selfsigned.h"
 #include "acme_client.h"
 #include <Preferences.h>
@@ -149,3 +154,32 @@ String certStatusJson() {
     j += "}";
     return j;
 }
+#else
+// ============================================================================
+// Stub (WEIRDOS_FEATURE_TLS_SERVER=0): kein HTTPS-Server im Build, also auch kein Zertifikats-
+// speicher (self-signed / Upload / Let's Encrypt). Jede Header-Funktion bleibt definiert, damit
+// .ino / serial_console / ui_system unveraendert linken. certResolveActive() liefert false ->
+// die .ino faellt beim Start auf HTTP:80 zurueck (srcText nennt den Grund). Kein mbedTLS-X.509,
+// kein NVS-Zugriff -- hinterlegte Zertifikate bleiben fuer einen Build mit TLS_SERVER erhalten.
+// ============================================================================
+static const char* kTlsNotBuilt = "HTTPS-Server nicht im Build enthalten (WEIRDOS_FEATURE_TLS_SERVER=0)";
+void        certStoreLoad() {}
+CertSource  certSource() { return CertSource::SelfSigned; }
+void        certSetSource(CertSource s) { (void)s; }
+String      certUploadSet(const String& certPem, const String& keyPem) { (void)certPem; (void)keyPem; return String(kTlsNotBuilt); }
+bool        certUploadPresent() { return false; }
+String      certUploadSubject() { return String(); }
+time_t      certUploadNotAfter() { return 0; }
+bool        certSelfSignedRenew() { return false; }
+void        certSetSelfSignedRenew(bool on) { (void)on; }
+String      certSelfSignedSubject() { return String(); }
+time_t      certSelfSignedNotAfter() { return 0; }
+bool        certRegenerateSelfSigned(const char* cn) { (void)cn; return false; }
+bool        certResolveActive(String& certOut, String& keyOut, String& srcText) { certOut = ""; keyOut = ""; srcText = kTlsNotBuilt; return false; }
+void        certTick(bool linkUp) { (void)linkUp; }
+String      certStatusJson() {
+    return String("{\"source\":0,\"builtIn\":false,\"msg\":\"") + kTlsNotBuilt +
+           "\",\"selfsigned\":{\"subject\":\"\",\"notAfter\":0,\"renew\":false},"
+           "\"upload\":{\"present\":false,\"subject\":\"\",\"notAfter\":0}}";
+}
+#endif // WEIRDOS_FEATURE_TLS_SERVER

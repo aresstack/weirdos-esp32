@@ -1,7 +1,14 @@
 // ============================================================================
 // modem_sim.cpp -- siehe modem_sim.h.
+//
+// Baustein MODEM (weirdos_features.h): bei WEIRDOS_FEATURE_MODEM=0 bleibt nur der Stub am Ende.
 // ============================================================================
-#include "modem_sim.h"
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_MODEM -- der Schalter dieses Bausteins
+#include "modem_sim.h"          // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_MODEM
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_MODEM=1) -- unveraendert
+// ============================================================================
 #include "ec200a_modem.h"   // modemAtTest, modemSimPin, saveModemPrefs
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -133,3 +140,32 @@ String modemSimPinManage(const String& action, const String& pin, const String& 
     j += "}";
     return j;
 }
+
+#else  // !WEIRDOS_FEATURE_MODEM
+// ============================================================================
+// Stub: SIM-Verwaltung nicht im Build enthalten (WEIRDOS_FEATURE_MODEM=0)
+// Kein AT-Kanal, kein FreeRTOS, keine Prefs. Konsumenten: .ino (/sim-pin), serial_console ("sim"),
+// ec200a_ecm/ec200a_modem (dort ohnehin gestubbt).
+// ============================================================================
+static const char* const kSimNotBuilt = "Modem nicht im Build enthalten (WEIRDOS_FEATURE_MODEM=0)";
+
+// Beginnt NICHT mit "READY" -> ein Aufrufer wuerde nie waehlen.
+String modemEnsureSimReady(uint8_t ifNum, uint8_t epOut, uint8_t epIn) {
+    (void)ifNum; (void)epOut; (void)epIn;
+    return kSimNotBuilt;
+}
+
+// "" = nie geprueft (Header-Vertrag); serial_console zeigt dann "(noch nicht geprueft)".
+const String& modemSimLastStatus() {
+    static const String s_never;
+    return s_never;
+}
+
+// Vollstaendiges JSON mit allen Schluesseln des Treibers (die Web-UI liest locked/cpin/pinLeft/pukLeft).
+String modemSimPinManage(const String& action, const String& pin, const String& newPin) {
+    (void)action; (void)pin; (void)newPin;
+    return String("{\"ok\":false,\"builtIn\":false,\"msg\":\"") + kSimNotBuilt
+         + "\",\"locked\":-1,\"cpin\":\"\",\"pinLeft\":null,\"pukLeft\":null}";
+}
+
+#endif // WEIRDOS_FEATURE_MODEM

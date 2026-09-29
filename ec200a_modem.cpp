@@ -5,15 +5,27 @@
 // USB-Bulk), LTE-Band-/RAT-Konfiguration, Modem-Prefs (eigene NVS-Instanz).
 // KENNT die App-Schicht nicht - meldet Ereignisse ueber Listener zurueck.
 // Der eigentliche Treiber-Code wurde 1:1 aus der urspruenglichen .ino uebernommen.
+//
+// Baustein MODEM (weirdos_features.h): bei WEIRDOS_FEATURE_MODEM=0 bleibt nur der Stub am Ende
+// dieser Datei -- kein usb_host_*, kein PPPoS, keine Transfer-Pools; der Linker wirft die
+// usb_host-Komponente und PPP mit --gc-sections heraus. Der Header bleibt fuer alle
+// Konsumenten gleich. startUsbHost() ist dabei zugleich der Start des Bausteins USB_HOST
+// (das Modem ist heute sein einziger Nutzer, siehe Stub).
 // ============================================================================
-#include "ec200a_modem.h"
+#include "weirdos_features.h"     // WEIRDOS_FEATURE_MODEM -- der Schalter dieses Bausteins
+#include "ec200a_modem.h"         // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_MODEM
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_MODEM=1) -- unveraendert
+// ============================================================================
 #include "ec200a_ecm.h"            // ECM-Datenpfad: isUp() + Byte-Zaehler fuer den Speedtest
 #include "modem_sim.h"            // modemEnsureSimReady (PIN beim Verbinden, gemeinsam mit ECM)
 #include "modem_clock.h"          // modemClockSync: Wanduhr aus dem Netz, solange IF3 frei ist
 #include "usb_ports.h"            // USB-Port-Mapping: peripheral_map + FSLS-PHY-Wahl fuer den Modem-Host
 #include "peripheral_registry.h"  // periphModemPort (welcher Port traegt cellular0)
 
-#include <WiFi.h>
+#include <Network.h>              // Network.hostByName + NetworkClient (lwIP, funk-unabhaengig) -- KEIN WiFi.h:
+                                  // das zoege die WLAN-Library auch bei WEIRDOS_FEATURE_WIFI=0 ins Bild
 #include <HTTPClient.h>           // eingebauter LTE-Speedtest (HTTP-GET/POST ueber PPP)
 #include <Preferences.h>
 #include <cstdlib>
@@ -1803,7 +1815,7 @@ String modemReset() {
 String modemRunInternetTest() {
     if (!pppIsUp() && !ec200aEcm.isUp()) return "Kein Datenlink. Zuerst 'Verbinden'.";
     IPAddress ip;
-    if (WiFi.hostByName("connectivitycheck.gstatic.com", ip))
+    if (Network.hostByName("connectivitycheck.gstatic.com", ip))   // = WiFi.hostByName (Core 3.x), ohne WiFi-Objekt
         return "Internet OK - DNS aufgeloest: " + ip.toString();
     return "PPP-Link steht, aber DNS-Aufloesung fehlgeschlagen.";
 }
@@ -1878,7 +1890,7 @@ static void stUpWorker(void* arg) {
     // die 1-GiB-POST nicht dauerhaft an), wird sofort neu verbunden und weiter
     // gesendet -> zuverlaessige Dauerlast statt einmaligem Abbruch.
     while (g_stWorkersRun && idx < g_stTargetWorkers) {
-        WiFiClient c; c.setTimeout(6000);
+        NetworkClient c; c.setTimeout(6000);   // Core 3.x: WiFiClient ist nur ein typedef hierauf
         if (c.connect(ST_UP_HOST, ST_UP_PORT)) {
             String hdr  = "POST " + String(ST_UP_PATH) + " HTTP/1.1\r\n";
             hdr += "Host: " + String(ST_UP_HOST) + "\r\n";
@@ -1904,10 +1916,10 @@ static void stDownWorker(void* arg) {
     // Reconnect-Schleife: fertige/abgebrochene Downloads sofort neu starten ->
     // die RX-Last bleibt ueber das ganze Messfenster erhalten.
     while (g_stWorkersRun && idx < g_stTargetWorkers) {
-        HTTPClient http; WiFiClient client;
+        HTTPClient http; NetworkClient client;
         http.setConnectTimeout(6000); http.setTimeout(6000);
         if (http.begin(client, ST_DOWN_URL) && http.GET() == 200) {
-            WiFiClient* s = http.getStreamPtr();
+            NetworkClient* s = http.getStreamPtr();
             while (g_stWorkersRun && idx < g_stTargetWorkers && http.connected()) {
                 int n = s->available();
                 if (n > 0) { if (n > (int)sizeof(buf)) n = sizeof(buf); s->readBytes(buf, n); }
@@ -2057,3 +2069,165 @@ String modemApplyAutoconnect(bool enable) {
         : "Autoconnect im Modem-Flash deaktiviert.";
     return modemLastMessage;
 }
+
+#else  // !WEIRDOS_FEATURE_MODEM
+// ============================================================================
+// Stub: Modem nicht im Build enthalten (WEIRDOS_FEATURE_MODEM=0)
+//
+// Dieselben Symbole wie ec200a_modem.h, triviale Koerper: KEIN usb_host_*-Aufruf, kein lwIP-PPPoS,
+// kein WiFi/HTTPClient (Speedtest), kein Preferences/NVS, kein Task, keine Transfer-Pools. Nichts
+// referenziert die usb_host-Komponente oder PPP -> der Linker wirft sie mit --gc-sections samt
+// Puffern heraus (Flash + statisches RAM + internes DMA-RAM). Alle Konsumenten (.ino, web_ui.h,
+// ui_internet/ui_wan/ui_overview/ui_system, network_registry/-platform, wan_policy,
+// peripheral_registry, wifi_caps, serial_console, modem_datalink/-sim/-clock) kompilieren und
+// linken unveraendert.
+//
+// Semantik: kein Modem, kein Link, keine USB-Geraete. Prefs bleiben Compile-Defaults (KEIN
+// NVS-Zugriff: die im Flash gespeicherten Modem-Einstellungen bleiben fuer einen spaeteren Build
+// mit Modem erhalten). Aktionen liefern den Klartext "nicht im Build enthalten"; die JSON-Fragmente
+// tragen dieselben Schluessel wie der Treiber mit Nullwerten (die Web-UI parst sie unveraendert).
+//
+// startUsbHost()/usbEnumerateDevices() gehoeren konzeptionell zum Baustein USB_HOST (Fundament),
+// leben aber hier, weil das Modem heute der EINZIGE USB-Host-Nutzer ist -- siehe startUsbHost().
+// ============================================================================
+
+static const char* const kModemNotBuilt = "Modem nicht im Build enthalten (WEIRDOS_FEATURE_MODEM=0)";
+
+// ---- Geteilte Globals (ec200a_modem.h) -----------------------------------------
+// Zugangsdaten/Profile: dieselben Compile-Defaults wie der Treiber, damit die Formulare
+// (ui_internet, serial_console) sinnvolle Vorgaben zeigen; nichts wird geladen oder gespeichert.
+String   modemApn         = MODEM_APN_DEFAULT;
+String   modemUser        = "";
+String   modemPass        = "";
+String   modemPdpType     = MODEM_PDP_DEFAULT;
+String   modemAuth        = MODEM_AUTH_DEFAULT;
+String   modemDialNumber  = MODEM_DIAL_DEFAULT;
+String   modemSimPin      = "";
+uint32_t modemLastResetMs = 0;                        // nie ein Reset -> usbHostRecoveryTick (.ino) bleibt inert
+bool     modemAutoconnect = MODEM_AUTOCONNECT_DEFAULT;
+bool     modemAutoStart   = false;                    // nichts, was automatisch starten koennte
+String   modemBandProfile = "auto";
+String   modemBandCustom  = "";
+String   modemNetMode     = "auto";
+bool     modemLinkUp      = false;                    // Link ist und bleibt unten (acmeTick/certTick/weirdReqIsWan lesen das)
+String   modemLastMessage = kModemNotBuilt;           // /modem-status.json "msg" nennt den Grund
+volatile bool     modemUsbHostReady = false;          // .ino: usbHostStarted = modemUsbHostReady -> bleibt false
+volatile bool     modemUsbFound     = false;
+volatile int      modemUsbDevCount  = 0;
+volatile uint16_t modemUsbLastVid   = 0;
+volatile uint16_t modemUsbLastPid   = 0;
+volatile uint32_t modemUsbLibEvents = 0;
+volatile uint32_t modemUsbCliEvents = 0;
+String            modemUsbError     = "";             // startUsbHost() setzt den Grund (-> usbHostSkipReason in der .ino)
+// RF-Snapshot: leer, modemRfMs = 0 (nie einer). ui_internet zeigt darueber "Variante noch nicht erkannt".
+String   modemRfQeng = "", modemRfQnw = "", modemRfCops = "", modemRfCsq = "";
+String   modemRfAti = "", modemRfImei = "", modemRfIccid = "", modemRfImsi = "", modemRfCpin = "", modemRfCereg = "";
+uint32_t modemRfMs = 0;
+char     g_modemUsbInfo[1] = "";   // leere Schnittstellen-/Endpoint-Karte (/modem-usbinfo prueft strlen())
+// Modem-Prefs (NVS "modem"): Compile-Defaults, kein NVS.
+bool   modemUsbEnabled = false;    // kein USB-Modem im Build -> ehrlich "aus" (Haken unter WAN > Modem leer)
+String modemDataMode   = "ecm";    // wan_policy/network_registry/peripheral_registry leiten daraus die Interface-IDs ab
+String modemNatMode    = "nic";
+
+// ---- Tabellen -------------------------------------------------------------------
+// LTE-Bandtabelle: LEER, aber gueltig (LTE_BAND_N = 0). ui_internet und die .ino iterieren
+// 0..LTE_BAND_N-1 -> keine Zeile. Ein Platzhalter-Element, weil ein Array der Laenge 0 kein
+// Standard-C++ ist; es ist ueber LTE_BAND_N nie erreichbar.
+const LteBandInfo LTE_BANDS[1] = { { 0, 0, 0, false } };
+const int         LTE_BAND_N   = 0;
+
+// ---- Observer / Listener: Registrierung angenommen, es feuert nie ein Ereignis ----
+void modemAddPppListener(ModemPppListener cb)           { (void)cb; }
+void modemAddPresenceListener(ModemPresenceListener cb) { (void)cb; }
+
+// ---- USB-Host (Baustein USB_HOST) ------------------------------------------------
+// Der USB-OTG-Host hat heute genau EINEN Nutzer: das Modem. Darum lebt sein Start im Modem-Treiber
+// und faellt mit ihm weg:
+//   * WEIRDOS_FEATURE_USB_HOST=0: kein Host-Stack im Build -> nur die Meldung.
+//   * WEIRDOS_FEATURE_USB_HOST=1, MODEM=0: der Stack WAERE verfuegbar, aber ohne Client waere
+//     usb_host_install() nur Kosten (zwei Tasks, ~8 KB Stacks, Enumeration ohne Abnehmer) ->
+//     bewusst No-op. Kommt ein zweiter Host-Nutzer (z.B. USB-WLAN-Adapter), wandert der Host-Start
+//     in eine eigene UE hinter WEIRDOS_FEATURE_USB_HOST, und der Modem-Treiber wird deren Client.
+// In beiden Faellen bleibt modemUsbHostReady false -> die .ino setzt usbHostStarted nicht und
+// uebernimmt modemUsbError als usbHostSkipReason (sichtbar in /modem-status.json "usbhostreason").
+void startUsbHost() {
+#if WEIRDOS_FEATURE_USB_HOST
+    modemUsbError = "USB-Host ohne Nutzer nicht gestartet: Modem nicht im Build enthalten (WEIRDOS_FEATURE_MODEM=0)";
+    Serial.println("USB-Host: nicht gestartet -- Modem nicht im Build enthalten (WEIRDOS_FEATURE_MODEM=0), kein anderer USB-Host-Nutzer.");
+#else
+    modemUsbError = "USB-Host nicht im Build enthalten (WEIRDOS_FEATURE_USB_HOST=0)";
+    Serial.println("USB-Host nicht im Build enthalten (WEIRDOS_FEATURE_USB_HOST=0)");
+#endif
+}
+
+String modemAtTest(uint8_t ifNum, uint8_t epOut, uint8_t epIn, const String& cmd) {
+    (void)ifNum; (void)epOut; (void)epIn; (void)cmd;
+    return kModemNotBuilt;
+}
+String modemStatusText()   { return kModemNotBuilt; }
+bool   modemBackendReady() { return false; }
+
+// USB-Host-Primitiven fuer den ECM-Pfad: kein Client, kein Geraet, kein Claim.
+usb_host_client_handle_t modemUsbClientHandle() { return NULL; }
+usb_device_handle_t      modemDeviceHandle()     { return NULL; }   // peripheral_registry/.ino: "kein Modem"
+bool modemClaimInterface(uint8_t ifNum, uint8_t alt) { (void)ifNum; (void)alt; return false; }
+void modemReleaseInterface(uint8_t ifNum)            { (void)ifNum; }
+
+// Generische USB-Geraete-Sicht (wifi_caps: USB-WLAN-Adapter): ohne Host keine Geraete.
+int usbEnumerateDevices(UsbEnumDevice out[], int maxOut) { (void)out; (void)maxOut; return 0; }
+
+// ---- Link-Recovery-Sicht (.ino usbLinkRecoveryTick) ------------------------------
+int      modemUsbUnexpectedGone(uint32_t windowMs, uint32_t* lastMs) { (void)windowMs; if (lastMs) *lastMs = 0; return 0; }
+void     modemUsbClearGoneHistory() {}
+String   modemUsbRootPortCycle(bool* ok) { if (ok) *ok = false; return kModemNotBuilt; }
+uint32_t modemEnumGeneration() { return 0; }
+
+// ---- PPP (Internet-Datenpfad) -----------------------------------------------------
+String pppStart()        { return kModemNotBuilt; }
+String pppStop()         { return kModemNotBuilt; }
+void   pppFreeBuffers()  {}
+void   pppOnDeviceGone() {}
+String pppStatusText()   { return "nicht im Build enthalten"; }
+bool   pppIsUp()         { return false; }
+struct netif* pppNetifHandle() { return nullptr; }   // network_platform: "modem-ppp" -> kein netif
+String pppIpStr()        { return ""; }
+// JSON-Fragment mit denselben Schluesseln wie der Treiber (der Online-Monitor liest sie), alles 0.
+String pppRateJson() {
+    return "\"txkbit\":0,\"rxkbit\":0,\"maxtxkbit\":0,\"maxrxkbit\":0,\"txbytes\":0,\"rxbytes\":0,"
+           "\"txwait\":0,\"txtimeout\":0,\"txsubmitfail\":0,\"txmaxinflight\":0,\"txwaitus\":0";
+}
+void modemRateTick()     {}
+void modemRateResetMax() {}
+
+// ---- Modem-Prefs: kein NVS -----------------------------------------------------------
+void loadModemPrefs() {}
+void saveModemPrefs() {}
+
+// ---- Band-/RAT-Konfiguration -----------------------------------------------------------
+uint64_t modemProfileLteMask() { return 0; }
+String   modemApplyBands()     { return kModemNotBuilt; }
+String   modemStartBandScan()  { return kModemNotBuilt; }
+String   modemBandScanJson() {
+    return String("\"scanstate\":\"idle\",\"scancur\":0,\"scanbest\":0,\"scanmsg\":\"") + kModemNotBuilt
+         + "\",\"scanbands\":[]";
+}
+String   modemNeighbourDump()  { return kModemNotBuilt; }
+
+// ---- Aktionsschicht (HTTP-Handler der .ino, serielle Konsole) -------------------------
+String modemConnect()          { return kModemNotBuilt; }
+String modemDisconnect()       { return kModemNotBuilt; }
+String modemReset()            { return kModemNotBuilt; }
+void   startPppSupervisor()    {}
+String modemRunInternetTest()  { return kModemNotBuilt; }   // handleModemTest: ok = (Link up) && ... -> false
+String modemApplyAutoconnect(bool enable) { (void)enable; return kModemNotBuilt; }
+bool   modemWaitRegistered(uint8_t ifNum, uint8_t epOut, uint8_t epIn, int maxSec) {
+    (void)ifNum; (void)epOut; (void)epIn; (void)maxSec;
+    return false;
+}
+String modemSpeedtestStart(int conn, bool autoMode) { (void)conn; (void)autoMode; return kModemNotBuilt; }
+String modemSpeedtestJson() {
+    return String("\"ststate\":\"idle\",\"stdown\":0,\"stup\":0,\"stconn\":0,\"stauto\":false,"
+                  "\"stactive\":0,\"stbest\":0,\"stmsg\":\"") + kModemNotBuilt + "\"";
+}
+
+#endif // WEIRDOS_FEATURE_MODEM

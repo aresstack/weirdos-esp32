@@ -9,8 +9,16 @@
 // oeffentlicher IP + Inbound). ECM ist die PRODUKTIONS-Datenschicht (Default); PPP bleibt als
 // Kompatibilitaets-/Rueckfallpfad. Offen: A/B-Durchsatz ECM vs. PPP, Ingress-Backpressure bei
 // grossen WireGuard-Transfers (problems.md).
+//
+// Baustein MODEM (weirdos_features.h): ECM ist der Datenpfad des Modems und faellt mit
+// WEIRDOS_FEATURE_MODEM=0 weg -- dann bleibt nur der Stub am Ende dieser Datei.
 // ============================================================================
-#include "ec200a_ecm.h"
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_MODEM -- der Schalter dieses Bausteins (ECM ist Teil von MODEM)
+#include "ec200a_ecm.h"         // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_MODEM
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_MODEM=1) -- unveraendert
+// ============================================================================
 #include "ec200a_modem.h"
 #include "modem_sim.h"        // modemEnsureSimReady (SIM-PIN vor dem Datenkanal, gemeinsam mit PPP)
 #include "modem_clock.h"      // modemClockSync (Wanduhr aus dem Netz, gemeinsam mit PPP)
@@ -715,3 +723,60 @@ String ecmSwitchModemUsbnet(int mode) {
     String r1 = modemAtTest(3, 0x0F, 0x86, "AT+QCFG=\"usbnet\"," + String(mode));
     return "usbnet=" + String(mode) + " gesetzt (" + r1 + ") - wirkt nach Modem-Reboot.";
 }
+
+#else  // !WEIRDOS_FEATURE_MODEM
+// ============================================================================
+// Stub: CDC-ECM-Datenpfad nicht im Build enthalten (WEIRDOS_FEATURE_MODEM=0)
+//
+// Gleiche Klasse, gleiches globales Objekt, jede freie Funktion aus ec200a_ecm.h trivial: kein
+// usb_host_*, keine Transfer-Pools, kein Ethernet-netif, kein Supervisor-Task, kein AT. up_ bleibt
+// false -> isUp() false, statusText "nicht im Build". Konsumenten: .ino (DynDNS/Status-JSON),
+// network_registry, network_platform, peripheral_registry, serial_console, modem_datalink.
+//
+// ecmDefaultRouteIp() ist KEIN Modem-Wissen (liest nur netif_default) und bleibt fuer die
+// DynDNS-Egress-Diagnose der .ino (auch ueber WLAN) funktional, solange ein IP-Stack im Build ist.
+// ============================================================================
+#if WEIRDOS_FEATURE_NET
+#include "lwip/netif.h"       // netif_default (reine Diagnose, kein ECM)
+#include "lwip/ip4_addr.h"    // ip4addr_ntoa_r
+#endif
+
+static const char* const kEcmNotBuilt = "Modem nicht im Build enthalten (WEIRDOS_FEATURE_MODEM=0)";
+
+Ec200aEcm ec200aEcm;
+volatile uint32_t g_ecmTxBytes = 0, g_ecmRxBytes = 0;   // Byte-Zaehler bleiben 0 (Speedtest/Online-Monitor)
+
+bool   Ec200aEcm::begin()            { return false; }
+void   Ec200aEcm::stop()             {}
+void   Ec200aEcm::onGone()           {}
+bool   Ec200aEcm::isUp() const       { return false; }
+String Ec200aEcm::statusText() const { return "ECM: nicht im Build enthalten"; }
+// JSON-Fragment mit denselben Schluesseln wie der Treiber (sendModemJson haengt es ein).
+String Ec200aEcm::rateJson() const   { return "\"ecmup\":false,\"ecmtx\":0,\"ecmrx\":0"; }
+
+String ecmWanIp()           { return ""; }
+String ecmWanIp6()          { return ""; }
+void   ecmSetDefaultRoute() {}
+#if WEIRDOS_FEATURE_NET
+// Identisch zum Treiber: IP des aktuellen Default-netif (Diagnose: WLAN-Egress fuer DynDNS).
+String ecmDefaultRouteIp() {
+    struct netif* d = netif_default;
+    if (!d) return "";
+    char b[24];
+    ip4addr_ntoa_r(netif_ip4_addr(d), b, sizeof(b));
+    return String(b);
+}
+#else
+String ecmDefaultRouteIp() { return ""; }
+#endif
+struct netif* ecmNetifHandle() { return nullptr; }   // network_platform: "modem-ecm" -> kein netif
+
+void   ecmStartSupervisor() {}
+void   ecmStopSupervisor()  {}
+bool   ecmFallbackActive()  { return false; }        // modem_datalink: nie ein PPP-Rueckfall
+void   ecmFallbackReset()   {}
+void   ecmOnDeviceGone()    {}
+String ecmSwitchModemUsbnet(int mode) { (void)mode; return kEcmNotBuilt; }
+String ecmSwitchModemNat(int nat)     { (void)nat;  return kEcmNotBuilt; }
+
+#endif // WEIRDOS_FEATURE_MODEM

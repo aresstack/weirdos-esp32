@@ -27,7 +27,9 @@
 #include "freertos/queue.h"        // Job-Queue des dauerhaften H.264-Workers
 
 #include <esp_heap_caps.h>
+#if WEIRDOS_FEATURE_TLS_SERVER
 #include <esp_https_server.h>      // Phase-1-TLS-PoC: HTTPS-MJPEG-Stream (httpd_ssl_*)
+#endif
 #include "tls_selfsigned.h"        // On-Device self-signed Cert/Key (kein Git-Secret)
 #include <cstring>
 #include <cstdio>
@@ -783,6 +785,12 @@ void CameraServer::beginTls(uint16_t securePort) {
     if (streamServerTls_ != nullptr) {
         return;   // idempotent
     }
+#if !WEIRDOS_FEATURE_TLS_SERVER
+    // Baustein TLS_SERVER abgewaehlt: kein esp_https_server im Image -> nur der HTTP-Stream (begin()).
+    (void)securePort;
+    Serial.println("MJPEG HTTPS stream server: HTTPS-Server nicht im Build enthalten (WEIRDOS_FEATURE_TLS_SERVER=0).");
+    return;
+#else
 
     // Self-signed Cert/Key EINMAL pro Boot erzeugen und halten (stabil ueber
     // Reconnects). Kein privater Schluessel im Repo -> On-Device generiert.
@@ -826,6 +834,7 @@ void CameraServer::beginTls(uint16_t securePort) {
         streamServerTls_ = nullptr;
         Serial.printf("MJPEG HTTPS stream server could not be started (0x%x).\n", r);
     }
+#endif // WEIRDOS_FEATURE_TLS_SERVER
 }
 
 
@@ -835,11 +844,13 @@ void CameraServer::stop() {
         streamServer_ = nullptr;
         Serial.println("MJPEG stream server stopped.");
     }
+#if WEIRDOS_FEATURE_TLS_SERVER
     if (streamServerTls_ != nullptr) {
         httpd_ssl_stop(streamServerTls_);
         streamServerTls_ = nullptr;
         Serial.println("MJPEG HTTPS stream server stopped.");
     }
+#endif
 }
 
 

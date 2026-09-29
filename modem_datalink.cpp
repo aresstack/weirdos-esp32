@@ -1,8 +1,15 @@
 // ============================================================================
 // modem_datalink.cpp  --  Dispatch der neutralen Datenlink-API auf PPP/ECM.
 // Siehe modem_datalink.h. KEINE eigene Logik -- nur die eine ppp|ecm-Weiche.
+//
+// Baustein MODEM (weirdos_features.h): bei WEIRDOS_FEATURE_MODEM=0 bleibt nur der Stub am Ende.
 // ============================================================================
-#include "modem_datalink.h"
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_MODEM -- der Schalter dieses Bausteins
+#include "modem_datalink.h"     // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_MODEM
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_MODEM=1) -- unveraendert
+// ============================================================================
 
 #include "ec200a_modem.h"   // modemDataMode, modemConnect/Disconnect (=pppStart/Stop),
                             // startPppSupervisor, pppStop, pppIsUp/pppIpStr
@@ -59,3 +66,23 @@ const char* modemLinkModeName() {
     if (modemDataMode == "ecm" && ecmFallbackActive()) return "PPP (Rueckfall, ECM-Start fehlgeschlagen)";
     return isEcm() ? "CDC-ECM" : "PPP";
 }
+
+#else  // !WEIRDOS_FEATURE_MODEM
+// ============================================================================
+// Stub: keine Datenlink-Weiche ohne Modem (WEIRDOS_FEATURE_MODEM=0)
+// Kein Bezug auf PPP/ECM und KEIN dyndnsForceNow() (freie Funktion der .ino) -- der Stub haengt
+// an nichts. Konsumenten: .ino (Handler, setup), serial_console, ui_wan, Geraete-Descriptor.
+// ============================================================================
+static const char* const kLinkNotBuilt = "Modem nicht im Build enthalten (WEIRDOS_FEATURE_MODEM=0)";
+
+String modemLinkConnect()    { return kLinkNotBuilt; }
+String modemLinkDisconnect() { return kLinkNotBuilt; }
+bool   modemLinkIsUp()       { return false; }
+String modemLinkWanIp()      { return ""; }
+
+void   startModemDataSupervisor() { Serial.println("[Datenschicht] Modem nicht im Build enthalten (WEIRDOS_FEATURE_MODEM=0) -- kein Supervisor."); }
+void   stopModemDataSupervisor()  {}
+
+const char* modemLinkModeName()   { return "Modem nicht im Build enthalten"; }   // Anzeige (ui_wan, Konsole, Descriptor)
+
+#endif // WEIRDOS_FEATURE_MODEM

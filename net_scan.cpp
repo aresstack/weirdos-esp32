@@ -1,7 +1,13 @@
 // ============================================================================
 // net_scan.cpp -- 7.10: LAN-Host-Scan + Ping (esp_ping) von der MCU aus.
 // ============================================================================
-#include "net_scan.h"
+#include "weirdos_features.h"      // WEIRDOS_FEATURE_NETSCAN -- der Schalter dieses Bausteins
+                                   // (+ WEIRDOS_FEATURE_WIFI: Funk-Recon 7.13-7.15 nur mit WLAN-Baustein; L3/L4 immer)
+#include "net_scan.h"               // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_NETSCAN
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_NETSCAN=1)
+// ============================================================================
 #include "bt_scan.h"        // 8.0: btBusy() - BLE-Scan und WLAN-Funk-Recon nicht gleichzeitig
 #include "network_registry.h"     // D1: Ziele/Attachments/Prefixe aus der Registry
 #include "network_platform.h"     // D1: netIfaceNativeHandle (Interface-id -> netif)
@@ -11,7 +17,9 @@
 
 #include "esp_netif.h"
 #include "esp_netif_net_stack.h"
-#include "esp_wifi.h"       // 7.13: Passiv-Monitor (Promiscuous-Mode)
+#if WEIRDOS_FEATURE_WIFI
+#include "esp_wifi.h"       // 7.13: Passiv-Monitor (Promiscuous-Mode) -- Funk, nur mit WLAN-Baustein
+#endif
 #include "lwip/ip_addr.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/inet.h"
@@ -603,6 +611,13 @@ String netPortScanJson() {
 }
 
 // ============================================================================
+// Funk-Recon (7.13 Passiv-Monitor, 7.14 Kanal-Uebersicht, 7.15 Tiefen-Kanal-Scan): braucht den
+// WLAN-Funk (esp_wifi Promiscuous/Scan/Kanalwechsel) -> Baustein WIFI. Ohne ihn liefern die Stubs
+// am Dateiende "nicht im Build enthalten"; die L3/L4-Werkzeuge oben sind davon unabhaengig.
+// ============================================================================
+#if WEIRDOS_FEATURE_WIFI
+
+// ============================================================================
 // 7.13: Passiv-Monitor (WLAN-Promiscuous) - sendende Geraete per MAC + RSSI
 // ============================================================================
 #define SNIFF_MAX 48
@@ -835,3 +850,48 @@ String netDeepChScanJson() {
     j += "]}";
     return j;
 }
+
+#else
+// ============================================================================
+// Stub: Funk-Recon nicht im Build (WEIRDOS_FEATURE_WIFI=0). Dieselben Symbole, triviale
+// Koerper: die .ino-Routen (/net-sniff*, /net-chscan*, /net-deepch*), die Konsole und bt_scan
+// (netReconBusy) referenzieren sie weiter. Kein esp_wifi, kein Task, keine Puffer. Das JSON
+// traegt dieselben Grundfelder wie oben (running/left/cur + leere Listen) plus "error", damit
+// das Diagnose-JS (ui_netscan.cpp) nichts auswerten muss, was es nicht kennt.
+// ============================================================================
+static const char* const kNetReconNoWifi = "WLAN nicht im Build enthalten (WEIRDOS_FEATURE_WIFI=0)";
+void   netSniffStart(int)      {}
+String netSniffJson()          { return String("{\"running\":false,\"left\":0,\"devices\":[],\"error\":\"") + kNetReconNoWifi + "\"}"; }
+void   netChannelScanStart()   {}
+String netChannelScanJson()    { return String("{\"running\":false,\"recommend\":1,\"channels\":[],\"aps\":[],\"error\":\"") + kNetReconNoWifi + "\"}"; }
+void   netDeepChScanStart()    {}
+String netDeepChScanJson()     { return String("{\"running\":false,\"cur\":0,\"channels\":[],\"error\":\"") + kNetReconNoWifi + "\"}"; }
+bool   netReconBusy()          { return false; }
+#endif // WEIRDOS_FEATURE_WIFI (Funk-Recon)
+#else
+// ============================================================================
+// Stub (WEIRDOS_FEATURE_NETSCAN=0): keine Netzwerk-Diagnose im Build (Host-Sweep, Ping, Routing-
+// Befund, Portscan, Passiv-Monitor, Kanalscan). Jede Header-Funktion bleibt definiert, damit .ino /
+// serial_console / bt_scan unveraendert linken; JSON-Antworten sind gueltig und nennen den Grund.
+// Kein lwIP-Socket-/ARP-/Ping-Code, kein Promiscuous-Mode, kein Worker-Task.
+// ============================================================================
+static const char* kNetScanNotBuilt = "Netzwerk-Diagnose nicht im Build enthalten (WEIRDOS_FEATURE_NETSCAN=0)";
+static String netScanNotBuiltJson() {
+    return String("{\"ok\":false,\"running\":false,\"msg\":\"") + kNetScanNotBuilt + "\"}";
+}
+String netScanStartTarget(const String& target, const String& mode) { (void)target; (void)mode; return String(kNetScanNotBuilt); }
+void   netScanStart() {}
+String netScanJson() { return netScanNotBuiltJson(); }
+String netScanTargetsJson() { return String("{\"ok\":false,\"targets\":[],\"msg\":\"") + kNetScanNotBuilt + "\"}"; }
+String netDiagResolveJson(const String& ip, const String& from) { (void)ip; (void)from; return netScanNotBuiltJson(); }
+String netPingJson(const String& ip) { (void)ip; return netScanNotBuiltJson(); }
+String netPortScanStart(const String& ip, int fromPort, int toPort, bool udp) { (void)ip; (void)fromPort; (void)toPort; (void)udp; return String(kNetScanNotBuilt); }
+String netPortScanJson() { return netScanNotBuiltJson(); }
+void   netSniffStart(int seconds) { (void)seconds; }
+String netSniffJson() { return netScanNotBuiltJson(); }
+void   netChannelScanStart() {}
+String netChannelScanJson() { return netScanNotBuiltJson(); }
+void   netDeepChScanStart() {}
+String netDeepChScanJson() { return netScanNotBuiltJson(); }
+bool   netReconBusy() { return false; }   // kein Funk-Recon moeglich -> BLE (bt_scan) nie blockiert
+#endif // WEIRDOS_FEATURE_NETSCAN

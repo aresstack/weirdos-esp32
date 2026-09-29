@@ -8,8 +8,10 @@
 // Tab "Funk" = WLAN-only (Passiv-Monitor, Kanal-Uebersicht, Tiefen-Scan) -- bei WLAN=aus ausgegraut.
 // Logik: net_scan.*, Endpoints in esp32-modem-host.ino (/net-*). Konsole: 'net ...' (gleiche API).
 // ============================================================================
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_NETSCAN
 #include "web_ui.h"
 
+#if WEIRDOS_FEATURE_NETSCAN
 void renderNetScanBody(WeirdUiWriter& w, bool wifiOn, bool wifiHw) {
     w.write(
         "<div class='page-sub active' id='psub-nx-hosts'>"
@@ -66,7 +68,8 @@ void renderNetScanBody(WeirdUiWriter& w, bool wifiOn, bool wifiHw) {
             ? "unter LAN &gt; WLAN auf &quot;Aus&quot; gestellt. Die Funk-Werkzeuge (Passiv-Monitor, Kanal-Scans) "
               "setzen einen laufenden WLAN-Stack voraus; dort auf &quot;Automatisch&quot; oder &quot;Immer an&quot; "
               "stellen und neu starten. Die Werkzeuge im Tab &quot;Netz&quot; funktionieren unabhaengig davon."
-            : "diese Hardware hat keinen WLAN-Funk (ESP32-P4: nur ueber ESP-Hosted + Companion-C6, nicht bestueckt). "
+            : "WLAN ist nicht im Build (Baustein WIFI): entweder hat dieser Chip keinen WLAN-Funk (ESP32-P4: nur ueber "
+              "ESP-Hosted + Companion-C6, nicht bestueckt) oder der Baustein wurde beim Bauen abgewaehlt. "
               "Die Funk-Werkzeuge (Passiv-Monitor, Kanal-Scans) sind deshalb nicht nutzbar; die Werkzeuge im Tab "
               "&quot;Netz&quot; funktionieren unabhaengig davon.");
         w.write("</p></div><div class='fields-inactive'>");
@@ -261,3 +264,30 @@ void renderNetScanBody(WeirdUiWriter& w, bool wifiOn, bool wifiHw) {
         "</div>"   // /psub-nx-funk
     );
 }
+#else
+// Netzwerk-Diagnose nicht im Build (WEIRDOS_FEATURE_NETSCAN=0). Beide Unterseiten (Netz / Funk) bleiben
+// sichtbar und nennen den Grund -- Menuepunkt nicht verstecken (Konsistenz mit Netzzonen/Bluetooth).
+// Bewusst OHNE Bedien-IDs und OHNE Poll-Script: die /net-*-Routen sind in diesem Build nicht
+// registriert (Routen in der .ino ebenfalls unter WEIRDOS_FEATURE_NETSCAN).
+void renderNetScanBody(WeirdUiWriter& w, bool wifiOn, bool wifiHw) {
+    (void)wifiOn; (void)wifiHw;
+    w.write(
+        "<div class='page-sub active' id='psub-nx-hosts'>"
+        "<h2 class='section-title'>Netzwerk-Diagnose</h2>"
+        "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;"
+        "border-radius:6px;margin:8px 0'><p><strong>Die Netzwerk-Diagnose ist in diesem Build nicht enthalten "
+        "(WEIRDOS_FEATURE_NETSCAN=0).</strong> Der Baustein NETSCAN (Host-Sweep, Ping, Routing-Befund, "
+        "TCP/UDP-Portscan, Passiv-Monitor und Kanalscan) wurde beim Bauen abgewaehlt.</p></div>"
+        "<div class='fields-inactive'><p class='cam-hint'>Mit dem Baustein NETSCAN bietet diese Seite: Rechner im "
+        "Netz finden (ARP/ICMP, auch durch WireGuard- und IPsec-Netze), Einzel-Ping mit Routing-Befund, "
+        "TCP/UDP-Portscan sowie die WLAN-Funkwerkzeuge. Dieselben Werkzeuge sind dann auf der Konsole als "
+        "<code>net ...</code> verfuegbar.</p></div>"
+        "</div>"
+        "<div class='page-sub' id='psub-nx-funk'>"
+        "<h2 class='section-title'>Funk (WLAN)</h2>"
+        "<p class='cam-hint'>Passiv-Monitor, Kanal-Uebersicht und Tiefen-Scan gehoeren zum Baustein NETSCAN und "
+        "sind in diesem Build nicht enthalten.</p>"
+        "</div>"
+    );
+}
+#endif // WEIRDOS_FEATURE_NETSCAN

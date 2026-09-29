@@ -45,6 +45,20 @@ jobs:
             fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
             flags: "-DWEIRDOS_FEATURE_CAMERA=0 -DWEIRDOS_FEATURE_VIDEO_HTTP=0 -DWEIRDOS_FEATURE_RTSP=0"
             optional: false
+          # Kein Mobilfunk (WLAN-Kamera, Repeater, Webcam): weder EC200A-Treiber noch USB-Host im Image.
+          # Beweist die MODEM/USB_HOST-Stubs (ec200a_*.cpp, modem_*.cpp).
+          - name: S3 no-modem
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: "-DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0"
+            optional: false
+          # Verwaltung auf das Noetigste: kein HTTPS-Server (damit auch kein Let's Encrypt), keine Konsole,
+          # keine Netzwerk-Diagnose, keine Sicherung. Beweist die Stubs der Bedien-/Verwaltungsbausteine
+          # (cert_store/tls_selfsigned/weird_http_esp-HTTPS-Zweig, acme_client, serial_console, net_scan,
+          # settings_backup) -- Weboberflaeche und OTA bleiben an.
+          - name: S3 slim-control (ohne TLS/ACME/Konsole/Netscan/Backup)
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: "-DWEIRDOS_FEATURE_TLS_SERVER=0 -DWEIRDOS_FEATURE_ACME=0 -DWEIRDOS_FEATURE_CONSOLE=0 -DWEIRDOS_FEATURE_NETSCAN=0 -DWEIRDOS_FEATURE_BACKUP=0"
+            optional: false
           # P4-Pico: 16 MB Flash + PSRAM. Mit dem generischen esp32p4-Default (4 MB, 1,25-MB-App)
           # linkt der Vollausbau zwar, passt aber nicht in die App-Partition. Groesste
           # 16-MB-App-Partition des Cores: app3M_fat9M_16MB (3 MB App). Gemessen (Stand 85d7fc9):
