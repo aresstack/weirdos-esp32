@@ -6,7 +6,8 @@
 #include "wan_policy.h"          // WanPolicy = EINZIGE System-WAN-Wahl (wanResolve)
 #include "network_registry.h"
 
-#include <WiFi.h>
+// (kein <WiFi.h>: die Probe ist ein roher lwIP-Socket, gebunden an die Registry-IP -- funk-unabhaengig;
+//  ein WiFi.h-Include wuerde die WLAN-Library auch bei WEIRDOS_FEATURE_WIFI=0 ins Bild ziehen)
 #include <lwip/sockets.h>        // gebundene TCP-Probe (bind an Interface-Quell-IP)
 #include <fcntl.h>
 #include "freertos/FreeRTOS.h"

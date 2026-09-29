@@ -3,8 +3,11 @@
 // Live-Zustand (read-only). Liest ECM/PPP/WLAN/WireGuard/IPsec-Status ueber die bestehenden
 // Accessoren; aendert nichts am Routing. Keine Persistenz.
 // ============================================================================
+#include "weirdos_features.h"    // WEIRDOS_FEATURE_WIFI: WLAN-Interfaces/-Anbindungen nur mit WLAN-Baustein
 #include "network_registry.h"
-#include <WiFi.h>
+#if WEIRDOS_FEATURE_WIFI
+#include <WiFi.h>                // WiFi.status()/localIP()/softAPIP() (WLAN-Funk) -- ohne Baustein nicht im Bild
+#endif
 #include "ec200a_modem.h"        // pppIsUp/pppIpStr
 #include "ec200a_ecm.h"          // ec200aEcm/ecmWanIp
 #include "peripheral_registry.h" // periphModemPort (Port des Modem-Geraets)
@@ -45,6 +48,7 @@ void netRegistryBuild(NetIface out[], int maxOut, int& count) {
         n.id = "modem-ppp"; n.kind = "cellular"; n.up = up; n.ip = up ? pppIpStr() : String("");
         n.roles = NETROLE_WAN; n.label = "Mobilfunk (EC200A) - PPP"; n.device = "EC200A"; n.port = periphModemPort;
     }
+#if WEIRDOS_FEATURE_WIFI
     if (count < maxOut) {
         bool up = (WiFi.status() == WL_CONNECTED);
         NetIface& n = out[count++];
@@ -58,6 +62,7 @@ void netRegistryBuild(NetIface out[], int maxOut, int& count) {
         n.id = "wifi-ap"; n.kind = "wifi"; n.up = up; n.ip = up ? WiFi.softAPIP().toString() : String("");
         n.roles = NETROLE_LAN; n.label = "WLAN-AccessPoint"; n.device = "WiFi"; n.port = "";
     }
+#endif   // ohne WLAN-Baustein gibt es die Interfaces wifi-sta/wifi-ap nicht (netInterfaceById -> false; Egress/WAN-Policy fallen auf Mobilfunk)
 }
 
 bool netInterfaceById(const String& id, NetIface& out) {
@@ -146,6 +151,7 @@ static void addPrefixCsv(ReachablePrefix out[], int maxOut, int& count, const St
 // ---- Attachments -------------------------------------------------------------------------
 void netAttachmentsBuild(NetAttachment out[], int maxOut, int& count) {
     count = 0;
+#if WEIRDOS_FEATURE_WIFI
     // WLAN-AP: wir sind Gateway des AP-Netzes -> Absender beliebig, Rueckweg bekannt (Clients routen zu uns).
     if (count < maxOut) {
         NetAttachment& a = out[count++]; attInit(a, "wlan-ap", "wifi-ap", NATT_LAN, "WLAN-AccessPoint (eigenes Netz)");
@@ -167,6 +173,27 @@ void netAttachmentsBuild(NetAttachment out[], int maxOut, int& count) {
         a.up = staUp;
         if (staUp) { a.local = WiFi.localIP().toString(); a.localPrefix = 32; a.addrSource = NADDR_DHCP; a.mtu = 1500; }
     }
+#else
+    // Baustein WIFI fehlt (WEIRDOS_FEATURE_WIFI=0): die drei WLAN-Anbindungen bleiben als Eintraege
+    // SICHTBAR -- Zonen-UI und Konsole zeigen den Grund statt einer Luecke, gespeicherte Zonen-Intents
+    // auf wlan-* bleiben gueltig, aber "nicht verfuegbar" -- dasselbe Muster wie ipsec-server ohne
+    // Runtime: runtimeSupported=false, nie up, ohne Adresse/Capabilities (Planner: IMPOSSIBLE).
+    {
+        static const char* const kNoWifi = "WLAN nicht im Build enthalten (WEIRDOS_FEATURE_WIFI=0)";
+        if (count < maxOut) {
+            NetAttachment& a = out[count++]; attInit(a, "wlan-ap", "wifi-ap", NATT_LAN, "WLAN-AccessPoint (eigenes Netz)");
+            a.configured = false; a.runtimeSupported = false; a.stateNote = kNoWifi;
+        }
+        if (count < maxOut) {
+            NetAttachment& a = out[count++]; attInit(a, "wlan-sta-lan", "wifi-sta", NATT_LAN, "WLAN-Client: Netz des fremden Routers");
+            a.configured = false; a.runtimeSupported = false; a.stateNote = kNoWifi;
+        }
+        if (count < maxOut) {
+            NetAttachment& a = out[count++]; attInit(a, "wlan-sta-uplink", "wifi-sta", NATT_UPLINK, "WLAN-Client als Internet-Uplink");
+            a.configured = false; a.runtimeSupported = false; a.stateNote = kNoWifi;
+        }
+    }
+#endif
     // Mobilfunk-Uplink: das aktive Datenlink-Interface (ECM oder PPP).
     if (count < maxOut) {
         bool ecm = ec200aEcm.isUp(), ppp = pppIsUp();
@@ -244,6 +271,7 @@ bool netReachablePrefixOverflow() { return g_prefixOverflow; }
 void netReachablePrefixesBuild(ReachablePrefix out[], int maxOut, int& count) {
     g_prefixOverflow = false;
     count = 0;
+#if WEIRDOS_FEATURE_WIFI
     if (WiFi.getMode() & WIFI_MODE_AP) {
         uint8_t p = maskToPrefix(WiFi.softAPSubnetMask());
         addPrefix(out, maxOut, count, "wlan-ap", netOf(WiFi.softAPIP(), p) + "/" + String(p), NPFX_ONLINK);
@@ -253,6 +281,7 @@ void netReachablePrefixesBuild(ReachablePrefix out[], int maxOut, int& count) {
         addPrefix(out, maxOut, count, "wlan-sta-lan", netOf(WiFi.localIP(), p) + "/" + String(p), NPFX_ONLINK);
         addPrefix(out, maxOut, count, "wlan-sta-uplink", "0.0.0.0/0", NPFX_DEFAULT);
     }
+#endif   // ohne WLAN-Baustein keine wlan-*-Prefixe
     if (ec200aEcm.isUp() || pppIsUp()) addPrefix(out, maxOut, count, "modem-uplink", "0.0.0.0/0", NPFX_DEFAULT);
     if (wireguardService.ifaceUp()) {
         bool server = wireguardService.isServerRole();

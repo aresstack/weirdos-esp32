@@ -13,7 +13,8 @@
 #include "vpn_status.h"    // fillVpnStatus: Runtime-Anteil des einheitlichen VPN-Status
 #include "egress_policy.h"
 #include "network_registry.h"
-#include <WiFi.h>          // bounded DNS (WiFi.hostByName) statt blockierendem getaddrinfo
+#include <Network.h>       // bounded DNS (Network.hostByName = WiFi.hostByName im Core 3.x) statt blockierendem
+                           // getaddrinfo -- ohne WiFi.h, damit WEIRDOS_FEATURE_WIFI=0 die WLAN-Library nicht mitzieht
 
 #include <string.h>
 #include <errno.h>
@@ -344,7 +345,7 @@ static int t_resolve(void *c, const char *host, weirdike_endpoint_t *out) {
         IPAddress ip;
         // hostByName kann bei NXDOMAIN "true" mit 0.0.0.0 liefern (hardware-beobachtet: SA_INIT ging
         // sechsmal an 0.0.0.0). 0.0.0.0/255.255.255.255 sind nie ein Gateway -> klarer Fehler.
-        if (!WiFi.hostByName(host, ip) || (uint32_t)ip == 0 || (uint32_t)ip == 0xFFFFFFFFu) {
+        if (!Network.hostByName(host, ip) || (uint32_t)ip == 0 || (uint32_t)ip == 0xFFFFFFFFu) {
             g.lastError = String("DNS: '") + host + "' nicht aufloesbar";
             return -1;
         }

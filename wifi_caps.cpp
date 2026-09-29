@@ -1,19 +1,27 @@
 // ============================================================================
 // wifi_caps.cpp -- siehe wifi_caps.h.
+//
+// Baustein WIFI (weirdos_features.h): bei WEIRDOS_FEATURE_WIFI=0 -- per -D abgewaehlt, oder vom
+// Schalterkasten hart auf 0 gezogen, weil der SoC keinen Funk hat (ESP32-P4) -- bleibt nur der
+// Stub am Ende dieser Datei: kein Funk, kein Repeater, wifiStackShouldInit() IMMER false. Damit
+// nimmt setup() in der .ino dieselbe Abzweigung wie bisher der P4 (startBareNetStack, kein
+// WiFi.mode/softAP/Scan), ohne dass WiFi.h/esp_wifi ueberhaupt im Bild sind. Die fruehere
+// CONFIG_IDF_TARGET_ESP32P4-Entscheidung in wifiPresent() ist damit im Schalterkasten aufgegangen
+// (WEIRDOS_SOC_WIFI), die Datei selbst kennt keinen SoC mehr.
 // ============================================================================
-#include "wifi_caps.h"
-#include <sdkconfig.h>
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_WIFI -- der Schalter dieses Bausteins
+#include "wifi_caps.h"          // Header bleibt UNVERAENDERT (Konsumenten kompilieren weiter)
+#if WEIRDOS_FEATURE_WIFI
+// ============================================================================
+// Echte Implementierung (WEIRDOS_FEATURE_WIFI=1): Onboard-Funk vorhanden.
+// ============================================================================
 #include <Preferences.h>
 #include "ec200a_modem.h"   // usbEnumerateDevices() -- generische USB-Geraete-Sicht
 
 bool wifiPresent() {
-#if defined(CONFIG_IDF_TARGET_ESP32P4)
-    // ESP32-P4 hat KEIN natives WLAN (nur via ESP-Hosted + Companion-C6, hier nicht bestueckt).
-    return false;
-#else
+    // Der Baustein ist nur dann 1, wenn der SoC WLAN-Funk hat (Klammer in weirdos_features.h):
     // ESP32-S3 & Co: Onboard-WLAN-Funk vorhanden.
     return true;
-#endif
 }
 
 int wifiRadioCount() {
@@ -102,3 +110,48 @@ const char* usbWifiAdapterDetected(uint16_t* vid, uint16_t* pid) {
     }
     return nullptr;
 }
+
+#else
+// ============================================================================
+// Stub: nicht im Build enthalten (WEIRDOS_FEATURE_WIFI=0).
+// Dieselben Symbole wie oben, triviale Koerper: Registry, UI-Seiten (LAN > WLAN, Assistent,
+// Diagnose, Plattform), Konsole ('wlan') und die .ino referenzieren sie weiter. Kein NVS, kein
+// USB-Zugriff -- der Stub haelt nur den Linker zufrieden und antwortet ehrlich "kein WLAN":
+//   * wifiPresent()/wifiRadioCount()/repeaterCapable(): kein Funk, kein Repeater.
+//   * wifiStackShouldInit(): IMMER false -> setup() nimmt den Bare-Net-Pfad (startBareNetStack).
+//     Auch "Immer an" (NVS "wifi"/"stackmode"=on) kann hier nichts erzwingen: es gibt keinen
+//     WiFi-Code, den man laden koennte. Der Modus ist deshalb unveraenderlich "off".
+//   * wifiStackActive(): IMMER false -> AP-Automatik/Scan/Connect-Gates in der .ino greifen.
+//   * usbWifiAdapterDetected(): nichts erkannt (die rein informative Erkennung gehoert zum Baustein).
+// ============================================================================
+bool wifiPresent()     { return false; }
+int  wifiRadioCount()  { return 0; }
+bool repeaterCapable() { return false; }
+
+const char* wifiStackModeToStr(WifiStackMode mode) {
+    switch (mode) {
+        case WifiStackMode::On:  return "on";
+        case WifiStackMode::Off: return "off";
+        default:                 return "auto";
+    }
+}
+
+WifiStackMode wifiStackModeFromStr(const String& s) {
+    if (s == "on")  return WifiStackMode::On;
+    if (s == "off") return WifiStackMode::Off;
+    return WifiStackMode::Auto;
+}
+
+void          wifiStackModeLoad()              {}                             // nichts zu laden
+WifiStackMode wifiStackMode()                  { return WifiStackMode::Off; } // ohne Baustein: immer "off"
+void          wifiStackModeSave(WifiStackMode) {}                             // nicht schaltbar, nichts speichern
+bool          wifiStackShouldInit()            { return false; }
+void          wifiStackMarkActive(bool)        {}
+bool          wifiStackActive()                { return false; }
+
+const char* usbWifiAdapterDetected(uint16_t* vid, uint16_t* pid) {
+    if (vid) *vid = 0;
+    if (pid) *pid = 0;
+    return nullptr;
+}
+#endif // WEIRDOS_FEATURE_WIFI

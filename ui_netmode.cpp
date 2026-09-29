@@ -62,9 +62,10 @@ void renderNetmode(WeirdUiWriter& w) {
     wradio(w, "usecase", "endpoint", "Nur dieses Geraet online (Endpunkt)", uc, false, "");
     wradio(w, "usecase", "ap",       "AccessPoint fuer andere Geraete",     uc, !wifiUsable,
            wifiUsable ? "" :
-           !wifiHw ? "Kein lokales WLAN erkannt (der ESP32-P4 hat keinen WLAN-Funk -- nur ueber "
-                     "ESP-Hosted + Companion-C6). Ohne WLAN-Hardware ist kein AccessPoint moeglich; "
-                     "der Zugang laeuft ueber Mobilfunk (LTE/DynDNS) + serielle Konsole."
+           !wifiHw ? "Kein WLAN im Build: der Chip hat keinen WLAN-Funk (ESP32-P4 -- nur ueber "
+                     "ESP-Hosted + Companion-C6) oder der Baustein WIFI wurde beim Bauen abgewaehlt. "
+                     "Ohne WLAN ist kein AccessPoint moeglich; der Zugang laeuft ueber Mobilfunk "
+                     "(LTE/DynDNS) + serielle Konsole."
                    : "WLAN-Hardware vorhanden, aber der WLAN-Stack ist unter LAN > WLAN auf 'Aus' "
                      "gestellt -- dort auf 'Automatisch' oder 'Immer an' umstellen, um AccessPoint "
                      "waehlen zu koennen.");
@@ -159,7 +160,7 @@ void renderNetmode(WeirdUiWriter& w) {
     w.write(String("<div><span>Laufzeit-Umschaltung:</span> ") + (networkMode.runtimeActive() ? "aktiv" : "gespeichert, noch kein Laufzeiteingriff") + "</div>");
     w.write(String("<div><span>Internet durchreichen (NAPT):</span> ") + (c.apInternet ? "gewaehlt -- <strong>noch nicht scharf</strong> (folgt hardware-getestet)" : "nein") + "</div>");
     w.write(String("<div><span>lwIP-NAPT (Gateway-Gate):</span> ") + (networkMode.naptCapable() ? "verfuegbar" : "nicht einkompiliert -- Gateway braucht lwIP-NAPT") + "</div>");
-    w.write(String("<div><span>Lokales WLAN:</span> ") + (wifiHw ? "Funk vorhanden" : "keine WLAN-Hardware (P4) -- AccessPoint deaktiviert") + "</div>");
+    w.write(String("<div><span>Lokales WLAN:</span> ") + (wifiHw ? "Funk vorhanden" : "nicht im Build (kein Funk auf diesem Chip oder Baustein WIFI abgewaehlt) -- AccessPoint deaktiviert") + "</div>");
     w.write(String("<div><span>Repeater (WDS/L2-Bridging):</span> ") + (repCap ? "Hardware erkannt" : "keine WDS-faehige WLAN-Hardware erkannt") + "</div>");
     w.write("</div></section>");
 }

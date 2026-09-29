@@ -45,6 +45,12 @@ jobs:
             fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
             flags: "-DWEIRDOS_FEATURE_CAMERA=0 -DWEIRDOS_FEATURE_VIDEO_HTTP=0 -DWEIRDOS_FEATURE_RTSP=0"
             optional: false
+          # Kein WLAN (P4-Pfad auf dem S3): kein WiFi.h/ESPmDNS/SoftAP/Captive-Portal im Image, DynDNS ueber
+          # Network.h. Beweist den WIFI-Schnitt (wifi_caps, ui_wlan, network_registry, .ino-WLAN-Regionen).
+          - name: S3 no-wifi
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: "-DWEIRDOS_FEATURE_WIFI=0"
+            optional: false
           # Kein Mobilfunk (WLAN-Kamera, Repeater, Webcam): weder EC200A-Treiber noch USB-Host im Image.
           # Beweist die MODEM/USB_HOST-Stubs (ec200a_*.cpp, modem_*.cpp).
           - name: S3 no-modem

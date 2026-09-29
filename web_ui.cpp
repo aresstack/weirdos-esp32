@@ -10,7 +10,10 @@
 // ============================================================================
 #include "web_ui.h"
 #include "weird_http.h"   // WeirdHttpResponse-Definition fuer die WeirdUiWriter-Methoden
-#include <WiFi.h>        // WiFi.localIP()/softAPIP() in createStatusBlock
+// Baustein WIFI (WEIRDOS_FEATURE_WIFI aus weirdos_features.h, via web_ui.h): WLAN-Funk nur damit im Bild.
+#if WEIRDOS_FEATURE_WIFI
+#include <WiFi.h>        // WiFi.SSID()/localIP() in createStatusBlock
+#endif
 
 // ---- WeirdUiWriter: duenne Bruecke Renderer -> WeirdHttpResponse::write() ----
 // write(const char*) haelt Literale/PROGMEM ohne String-Kopie (Flash ist auf dem
@@ -154,9 +157,10 @@ String createStatusBlock() {
     html += "<div class='info'>";
 
     html += "<div><span>Verbindung</span><span>";
-    html += wifiStatusText();
+    html += wifiStatusText();   // ohne Baustein WIFI: "nicht im Build enthalten"
     html += "</span></div>";
 
+#if WEIRDOS_FEATURE_WIFI
     if (wifiPortalConnected()) {
         html += "<div><span>Netzwerk</span><span>";
         html += escapeHtml(WiFi.SSID());
@@ -170,6 +174,7 @@ String createStatusBlock() {
         html += deviceHostname;
         html += ".local</span></div>";
     }
+#endif   // ohne WLAN-Baustein nie verbunden -> kein SSID/IP-Block
 
     html += "<div><span>Setup-AP</span><span>";
     html += setupApActive ? "aktiv" : "aus";

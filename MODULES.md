@@ -64,9 +64,9 @@ ohne Implementierung (Vorgabe 0).
 | Key | Baustein | Braucht | SoC | Status |
 |---|---|---|---|---|
 | `CAMERA` | Sensor + `FrameSource`-Pfad (DVP auf S3, MIPI auf P4) + Einzelbild `/capture` | PSRAM (Laufzeit) | nicht C3/C6 | **wired** |
-| `USB_HOST` | USB-OTG-Host (Fundament für MODEM) | — | S2/S3/P4 | declared |
+| `USB_HOST` | USB-OTG-Host (Fundament für MODEM) | — | S2/S3/P4 | **wired** |
 | `USB_DEVICE` | TinyUSB-Device-Stack (**~48 KB statisch**) | — | S2/S3/P4 | **wired** (bisher `WEIRDOS_USB_DEVICE`) |
-| `WIFI` | STA + AP + Captive-Portal + mDNS | NET | Funk (nicht P4) | declared |
+| `WIFI` | STA + AP + Captive-Portal + mDNS | NET | Funk (nicht P4) | **wired** |
 | `BLE` | BLE-Scan/Kopplung (NimBLE) | — | BLE-Funk (nicht S2/P4) | **wired** (bisher `WEIRDOS_HAS_BT`) |
 
 ### 4.2 Netz
@@ -74,13 +74,13 @@ ohne Implementierung (Vorgabe 0).
 | Key | Baustein | Braucht | Status |
 |---|---|---|---|
 | `NET` | IP-Stack, `network_registry`, Egress-/WAN-Policy | — | declared |
-| `MODEM` | EC200A: USB, AT, PPP/ECM-Datenpfad, SIM, Netzzeit | USB_HOST, NET | declared |
+| `MODEM` | EC200A: USB, AT, PPP/ECM-Datenpfad, SIM, Netzzeit | USB_HOST, NET | **wired** |
 | `USB_NCM` | ESP als USB-Netzwerkadapter am PC (Downlink) | USB_DEVICE, NET | **planned** |
 | `ROUTER` | Netzzonen: Forwarding, NAT, Policies, lwIP-Hooks | NET, **PSRAM** | **wired** |
 | `WIREGUARD` | WireGuard Server/Client (eigene Krypto vendored) | NET | **wired** |
 | `IPSEC` | IKEv2/IPsec-Client (WeirdIKE) | NET, CRYPTO_AES, **PSRAM** | **wired** |
 | `DYNDNS` | DynDNS-Updater | NET, TLS_CLIENT | declared |
-| `NETSCAN` | Ping/Portscan/Sniff/Kanalscan | NET | declared |
+| `NETSCAN` | Ping/Portscan/Sniff/Kanalscan | NET | **wired** |
 
 ### 4.3 Video-Ausgang (alle brauchen `CAMERA`)
 
@@ -97,12 +97,12 @@ ohne Implementierung (Vorgabe 0).
 |---|---|---|---|
 | `HTTP` | HTTP-Server-Transport (`weird_http_esp`) + Auth | NET | declared |
 | `WEBUI` | Weboberfläche (Seiten + Assets) | HTTP | declared |
-| `CONSOLE` | serielle Konsole (Kontrollpfad ohne Netz) | — | declared |
+| `CONSOLE` | serielle Konsole (Kontrollpfad ohne Netz) | — | **wired** |
 | `OTA` | Firmware-Update per Web | HTTP | declared |
-| `BACKUP` | NVS-Sicherung Export/Import | — | declared |
-| `TLS_SERVER` | HTTPS + Self-Signed + Zertifikatsspeicher | HTTP | declared |
+| `BACKUP` | NVS-Sicherung Export/Import | — | **wired** |
+| `TLS_SERVER` | HTTPS + Self-Signed + Zertifikatsspeicher | HTTP | **wired** |
 | `TLS_CLIENT` | HTTPS-Client | NET | declared |
-| `ACME` | Let's-Encrypt-Client | TLS_SERVER, TLS_CLIENT | declared |
+| `ACME` | Let's-Encrypt-Client | TLS_SERVER, TLS_CLIENT | **wired** |
 | `CRYPTO_AES` | eigener AES-Treiber (Zulieferer für IPSEC) | — | declared |
 
 ### 4.5 Zukunfts-Slots

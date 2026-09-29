@@ -21,7 +21,7 @@ void renderPlatform(WeirdUiWriter& w) {
         "(hier: <strong>");
     w.write(platformChipName());
     w.write("</strong>, WLAN-Funk: ");
-    w.write(wifiPresent() ? "vorhanden" : "keiner");
+    w.write(wifiPresent() ? "vorhanden" : "nicht im Build (kein Funk auf diesem Chip oder Baustein WIFI abgewaehlt)");
     w.write(
         "); das Profil beschreibt die Verdrahtung des Boards (Buchsen, Stiftleiste, USB) und belegt das USB-Mapping vor. "
         "Alle Module fragen ihre Faehigkeiten hier ab &ndash; so laeuft dieselbe Firmware auf dem P4-Pico mit Modem, auf einem "

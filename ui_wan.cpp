@@ -62,7 +62,8 @@ void renderWanAccessChoice(WeirdUiWriter& w) {
     prefRadio(w, "cellular", "Mobilfunk (Modem)",                   pref, false, "");
     prefRadio(w, "wifi",     "WLAN-Client",                         pref, !wifiOk,
               wifiOk ? "" : "Kein laufender WLAN-Stack: entweder hat dieses Board keinen WLAN-Funk (ESP32-P4 ohne "
-                            "ESP-Hosted-Companion) oder der Stack ist unter LAN > WLAN auf 'Aus' gestellt. "
+                            "ESP-Hosted-Companion), der Baustein WIFI ist nicht im Build, oder der Stack ist unter "
+                            "LAN > WLAN auf 'Aus' gestellt. "
                             "Ohne WLAN-Stack kann das Geraet kein Client in einem fremden WLAN sein.");
     prefRadio(w, "ethernet", "Ethernet (PHY)",                       pref, true,
               "Kein Ethernet-PHY erkannt. Der ESP32-P4 hat zwar einen EMAC, aber auf diesem Board ist kein "

@@ -1,10 +1,14 @@
 // ui_wlan.cpp -- Content: LAN > WLAN (Tabs: Funknetz, Sicherheit). Der Netzwerk-Scan liegt
 // jetzt unter Diagnose > Netzwerk (ui_netscan.cpp) -- reine Diagnose, keine LAN-Einstellung.
+// Baustein WIFI (WEIRDOS_FEATURE_WIFI): ohne ihn bleibt die Seite (Menuepunkt sichtbar) und nennt nur
+// den Grund -- keine Formulare, keine Bedien-IDs, kein /scan-/status.json-Polling (Muster ui_bluetooth.cpp).
+#include "weirdos_features.h"
 #include "web_ui.h"
 #include "network_mode.h"   // AP-Kanal-Policy (apChannelPol/apChannel) fuer das Kanal-Dropdown
 #include "wifi_caps.h"      // WLAN-Stack Auto/An/Aus + Hardware-/USB-Adapter-Erkennung
 
 void renderWlan(WeirdUiWriter& w) {
+#if WEIRDOS_FEATURE_WIFI
     const NetworkModeConfig& nm = networkMode.config();
     bool apAuto = (nm.apChannelPol != "fixed");   // "Automatisch (folgt Uplink)" vs. fester Kanal
 
@@ -199,4 +203,36 @@ void renderWlan(WeirdUiWriter& w) {
         "</div>"        // /psub-wl-sec
         "</section>"    // /tab-wlan
     );
+#else
+    // WLAN nicht im Build (WEIRDOS_FEATURE_WIFI=0): entweder hat der Chip keinen Funk (ESP32-P4 --
+    // der Schalterkasten zieht den Baustein dort hart auf 0) oder er wurde beim Bauen abgewaehlt.
+    // Panel bleibt sichtbar und nennt den Grund -- Menuepunkt nicht verstecken (Konsistenz mit
+    // IoT > Bluetooth). Bewusst OHNE die Bedien-IDs (wifistack/ssid/toggle-button/apsec-form): das
+    // WLAN-JS in web_ui_assets.cpp prueft darauf und wuerde sonst /scan bzw. /status.json rufen;
+    // die Routen /save, /scan, /ap-security-save sind in der .ino ebenfalls unter WEIRDOS_FEATURE_WIFI.
+    w.write(
+        "<section id='tab-wlan' class='tab-panel'>"
+        "<h2 class='section-title'>WLAN</h2>"
+        "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;"
+        "border-radius:6px;margin:8px 0'><p><strong>WLAN ist in dieser Firmware nicht enthalten</strong> "
+        "(Baustein WIFI, <code>WEIRDOS_FEATURE_WIFI=0</code>). Entweder hat dieser Chip keinen WLAN-Funk "
+        "(ESP32-P4: nur ueber ESP-Hosted mit einem Companion-Chip, der auf diesem Board nicht bestueckt ist) "
+        "oder der Baustein wurde beim Bauen abgewaehlt. Es laeuft nur der Netz-Unterbau (lwIP) fuer "
+        "Mobilfunk, VPN und die Weboberflaeche -- kein Setup-Accesspoint, kein Captive-Portal, kein "
+        "WLAN-Client, kein mDNS. Ein USB-WLAN-Adapter hilft nicht: dafuer gibt es in ESP-IDF/Arduino "
+        "keinen Treiber.</p></div>"
+        "<div class='fields-inactive'>"
+        "<p class='cam-hint'>Mit WLAN-Baustein bietet diese Seite: WLAN-Stack (Automatisch/Immer an/Immer aus), "
+        "Client-Modus in ein vorhandenes Funknetz (Netzsuche, Zugangsdaten), Setup-Accesspoint "
+        "(dauerhaft oder als Sicherheitsnetz ohne WAN), AP-Kanal und das WPA2-Passwort des Setup-AP.</p>"
+        "<div class='info'>"
+        "<div><span>WLAN-Stack</span><span>nicht im Build</span></div>"
+        "<div><span>Client-Modus (Zielnetz)</span><span>nicht im Build</span></div>"
+        "<div><span>Setup-Accesspoint / Captive-Portal</span><span>nicht im Build</span></div>"
+        "<div><span>AP-Kanal / WLAN-Sicherheit</span><span>nicht im Build</span></div>"
+        "</div>"
+        "</div>"
+        "</section>"    // /tab-wlan
+    );
+#endif
 }

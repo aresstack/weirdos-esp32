@@ -53,12 +53,15 @@
 // Uebersetzungseinheit liefert dann nur einen Stub ("nicht im Build enthalten").
 #include "weirdos_module_rules.h"
 
-#include <WiFi.h>
-#include <WiFiUdp.h>
-#include <HTTPClient.h>            // DynDNS-Update + Speedtest/Internet-Test (GET/POST)
-#include <WiFiClientSecure.h>     // DynDNS ueber HTTPS (setInsecure, wie Router)
+#if WEIRDOS_FEATURE_WIFI
+#include <WiFi.h>                  // Baustein WIFI: STA + SoftAP + Scan (WLAN-Funk)
+#include <WiFiUdp.h>               // Captive-DNS-Responder (UDP/53 auf dem Setup-AP)
+#include <ESPmDNS.h>               // <name>.local -- nur im lokalen Funknetz sinnvoll
+#endif
+#include <Network.h>               // NetworkClient + Network.hostByName: lwIP-Unterbau, funk-unabhaengig (auch ohne WIFI)
+#include <HTTPClient.h>            // DynDNS-Update + Speedtest/Internet-Test (GET/POST) -- KEIN Funk, reitet auf lwIP (MODULES.md 7.4)
+#include <WiFiClientSecure.h>     // DynDNS ueber HTTPS (setInsecure, wie Router) -- Kompat-Alias fuer NetworkClientSecure, kein Funk
 #include <Preferences.h>
-#include <ESPmDNS.h>
 #include <Update.h>                // OTA-Firmware-Update ueber die Weboberflaeche
 #include "camera_compat.h"   // esp_camera.h auf S3, inerte Shims auf P4/MIPI (kein DVP-Lib-Header)
 #include "esp_http_server.h"
@@ -68,11 +71,15 @@
 #include <esp_event.h>              // esp_event_loop_create_default() -- fuer den WLAN-losen Netz-Unterbau
 #include <esp_task_wdt.h>          // 7.9.10: Task-WDT unter VPN-Dauerlast entschaerfen (Idle-Starve)
 #include <esp_idf_version.h>
+#if WEIRDOS_FEATURE_USB_HOST
 #include "usb/usb_host.h"          // USB-Host: Modem-Erkennung (2C7C:6005) am Hub
+#endif // WEIRDOS_FEATURE_USB_HOST
 #include "driver/usb_serial_jtag.h" // PC-am-USB-Erkennung (SOF) -> Host nur ohne PC starten
 #include "esp_log.h"               // Log-Umleitung in RAM-Puffer (/modem-log)
+#if WEIRDOS_FEATURE_MODEM
 #include "netif/ppp/pppapi.h"      // lwIP PPPoS (threadsicher) fuer den Internet-Datenpfad
 #include "netif/ppp/pppos.h"       // pppos_input_tcpip
+#endif // WEIRDOS_FEATURE_MODEM
 #include "lwip/opt.h"              // TCP_MSS/TCP_SND_BUF/TCP_WND (Durchsatz-Diagnose)
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
@@ -309,15 +316,19 @@ WeirdHttpEsp g_web(80, false);
 // Port-80-Hilfsserver, NUR wenn die Verwaltung auf HTTPS:443 laeuft: beantwortet die ACME-http-01-
 // Challenge (/.well-known/acme-challenge/<token>, PUBLIC) und leitet alles andere per 301 auf
 // https:// um. Eigener Control-Port 32772, kleiner Stack (kein App-Render).
+#if WEIRDOS_FEATURE_ACME
 WeirdHttpEsp g_web80(80, false);
+#endif // WEIRDOS_FEATURE_ACME
 // Laeuft die Management-Control-Plane gerade ueber HTTPS? Bestimmt das Secure-Cookie-Flag
 // und die Transportwechsel-Invalidierung. Task 4 (HTTPS-Transport) setzt das aus der Config;
 // bis dahin HTTP (false).
 bool g_managementSecure = false;
-WiFiUDP dnsSocket;
+#if WEIRDOS_FEATURE_WIFI
+WiFiUDP dnsSocket;   // Captive-DNS-Hijack des Setup-AP (nur mit WLAN-Baustein)
 
 static const int DNS_MAX_PACKET_SIZE = 512;
 uint8_t dnsPacket[DNS_MAX_PACKET_SIZE];
+#endif
 Preferences preferences;
 
 void loadGeneralPrefs() {
@@ -343,6 +354,7 @@ PortalWifiState wifiState = PORTAL_WIFI_IDLE;
 unsigned long wifiAttemptStartedAt = 0;
 unsigned long wifiLastAttemptAt = 0;
 
+#if WEIRDOS_FEATURE_WIFI
 PortalScanState scanState = PORTAL_SCAN_IDLE;
 unsigned long scanStartedAt = 0;
 unsigned long scanCompletedAt = 0;
@@ -350,11 +362,14 @@ bool scanRequested = false;
 
 ScannedNetwork cachedNetworks[MAX_CACHED_NETWORKS];
 int cachedNetworkCount = 0;
+#endif
 
 unsigned long ledLastToggleAt = 0;
 bool ledIsOn = false;
 
+#if WEIRDOS_FEATURE_WIFI
 char captivePortalApiUri[48];
+#endif
 
 bool setupApActive = false;
 bool keepApAlways = KEEP_AP_DEFAULT;
@@ -510,6 +525,7 @@ void logEvent(const String& text) {
 
 void dyndnsForceNow();   // erzwingt ein sofortiges DynDNS-Update (Def. weiter unten)
 
+#if WEIRDOS_FEATURE_MODEM (PPP-/Praesenz-Observer)
 void onModemPppState(PppState s, const char* ip) {
     Serial.print("[modem] PPP-Status ");
     Serial.print((int)s);
@@ -528,6 +544,7 @@ void onModemPresence(bool present, uint16_t vid, uint16_t pid) {
     Serial.println(present ? "erkannt" : "weg");
     logEvent(present ? "Modem am USB erkannt" : "Modem am USB entfernt");
 }
+#endif // WEIRDOS_FEATURE_MODEM (PPP-/Praesenz-Observer)
 
 // 7.9.12: DynDNS-Selbstheilung. IONOS ist https-only; unter fragmentiertem Heap scheitert
 // mbedtls_ssl_setup mit ALLOC_FAILED (55k frei, aber groesster Block < ~32k). Ein Reset
@@ -598,6 +615,7 @@ static void startBareNetStack() {
                   esp_err_to_name(e1), esp_err_to_name(e2));
 }
 
+#if WEIRDOS_FEATURE_USB_HOST (USB-Host-Recovery)
 // ---- USB-Host-Recovery -----------------------------------------------------------------------
 // Nach einem Modem-Neustart (AT+CFUN=1,1: manuell, Datenschicht-Wechsel, ECM-Auto-Provisioning)
 // muss das Modem binnen ~90 s wieder enumerieren. Bleibt es aus, ist mit hoher Wahrscheinlichkeit
@@ -687,11 +705,14 @@ static void usbHostRecoveryTick() {
     Serial.flush(); delay(300);
     ESP.restart();
 }
+#endif // WEIRDOS_FEATURE_USB_HOST (USB-Host-Recovery)
 
 void setup() {
     Serial.begin(serialConsoleBaud());   // NVS "cfg"/"uartbaud" (Default 115200) -- Einrichtung > Setup > UART
     delay(1000);
+#if WEIRDOS_FEATURE_USB_HOST
     if (esp_reset_reason() != ESP_RST_SW) { g_usbRecoveryCount = 0; g_usbFlapReboots = 0; }   // RTC-Zaehler nur ueber Software-Resets tragen
+#endif // WEIRDOS_FEATURE_USB_HOST
 
     // 7.9.10/7.9.11: Unter WireGuard-LAN-Gateway-Dauerlast laeuft die ChaCha20-Krypto +
     // Forwarding + NAPT im tcpip-Task volle Pulle; der Idle-Task kommt kurz nicht dran ->
@@ -791,10 +812,13 @@ void setup() {
     loadEnergyPrefs();
     applyCpuProfile();       // gespeichertes CPU-Profil beim Boot setzen (kein Reboot noetig)
     startLogCapture();       // ESP-IDF-Log in RAM-Puffer (/modem-log) umleiten
+#if WEIRDOS_FEATURE_MODEM
     modemAddPppListener(onModemPppState);        // Observer registrieren (vor dem Host-Start)
     modemAddPresenceListener(onModemPresence);
+#endif // WEIRDOS_FEATURE_MODEM
     // USB-Host nur uebernehmen, wenn Modem aktiv UND kein PC am USB haengt.
     // Sonst bleibt der Serial-JTAG-Programmierport erhalten -> Flashen ohne BOOT-Hack.
+#if WEIRDOS_FEATURE_MODEM
     if (!modemUsbEnabled) {
         usbHostSkipReason = "Modem in Einstellungen deaktiviert";
         Serial.println("USB-Host uebersprungen: Modem deaktiviert.");
@@ -816,18 +840,31 @@ void setup() {
         usbHostStarted = modemUsbHostReady;   // nur bei Erfolg (sonst kann /periph-rescan erneut versuchen)
         if (!usbHostStarted && usbHostSkipReason.length() == 0) usbHostSkipReason = modemUsbError;
     }
+#else
+    // Kein Modem im Build (WEIRDOS_FEATURE_MODEM=0): der USB-Host hat heute keinen anderen Nutzer.
+    // Der Stub startet nichts und nennt den Grund (auch bei USB_HOST=0) -> /modem-status.json "usbhostreason".
+    startUsbHost();
+    usbHostStarted = modemUsbHostReady;   // bleibt false
+    usbHostSkipReason = modemUsbError;
+#endif // WEIRDOS_FEATURE_MODEM
     logHeapMark("nach USB-Host");
 
+#if WEIRDOS_FEATURE_WIFI
     WiFi.persistent(false);
+#endif
 
     // Zielnetz ist Opt-in. Ist es aktiv UND sind Zugangsdaten vorhanden, wird
     // verbunden; der AP kommt nur bei "AP dauerhaft an" oder bei fehlgeschlagener
     // Verbindung dazu. Soll der WLAN-/esp_hosted-Stack GAR NICHT laufen (Auto ohne
     // erkannte Funk-Hardware, oder Nutzer-Wahl "Aus" unter LAN > WLAN), entfaellt
     // der ganze WiFi-Aufbau -- siehe wifi_caps.h/wifiStackShouldInit().
+    // Baustein WIFI (WEIRDOS_FEATURE_WIFI=0, auf dem P4 immer): der Stub von wifi_caps liefert
+    // IMMER false -> dieselbe Bare-Net-Abzweigung wie bisher der P4, ohne dass WiFi.h im Bild ist.
     bool wifiOn = wifiStackShouldInit();
     wifiStackMarkActive(wifiOn);   // Laufzeit-Wahrheit fuer alle spaeteren WLAN-Aktionen (AP-Automatik, Scan, Connect)
+#if WEIRDOS_FEATURE_WIFI
     bool useTargetNetwork = wifiOn && targetNetworkEnabled && hasWifiCredentials();
+#endif
 
     if (!wifiOn) {
         // Kein WLAN gewuenscht/vorhanden -> NUR den lwIP/tcpip-Unterbau hochziehen (PPP und der
@@ -844,6 +881,7 @@ void setup() {
         startBareNetStack();
         Serial.println("[Netz] WLAN-Stack aus (kein Funk erkannt/gewuenscht) -> nur Netz-Unterbau; "
                        "Zugang ueber LTE (DynDNS) + serielle Konsole.");
+#if WEIRDOS_FEATURE_WIFI
     } else if (!useTargetNetwork || keepApAlways) {
         // Setup-AP in der bewiesenen Reihenfolge (4.3.2.1 -> DHCP-DNS-Offer -> DNS-Hijack).
         startAccessPoint();
@@ -853,6 +891,7 @@ void setup() {
     } else {
         WiFi.mode(WIFI_STA);
         WiFi.setSleep(false);
+#endif
     }
     logHeapMark("nach WLAN/Netz-Aufbau");   // Split ggue. "nach Webserver": zeigt den WLAN-Anteil isoliert
 
@@ -871,10 +910,12 @@ void setup() {
         // belegt TCP 443 UND einen Control-Port. Reaktivieren, wenn Video-HTTPS wirklich konfiguriert wird.
     }
 
+#if WEIRDOS_FEATURE_WIFI
     if (wifiOn) {
         if (useTargetNetwork) beginWifiConnection();
         else                  requestWifiScan();
     }
+#endif
 
     printNetworkStatus();
 
@@ -912,7 +953,9 @@ void startVideoTransport() {
 void loop() {
     serialConsoleTick();   // serielle Bedien-Konsole (Alternative zur Web-UI, v.a. P4)
     modemRateTick();       // 1s-Durchsatz-Sampler (Online-Monitor Max) -- laeuft im Hintergrund
+#if WEIRDOS_FEATURE_USB_HOST
     usbHostRecoveryTick(); // Modem nach CFUN=1,1 nicht wieder enumeriert -> ESP-Neustart statt Powercycle
+#endif // WEIRDOS_FEATURE_USB_HOST
     acmeTick(modemLinkUp); // Let's Encrypt: Erstbezug/Erneuerung (taeglich geprueft, nur mit Link + Uhr)
     certTick(modemLinkUp); // self-signed-Auto-Erneuerung (ACME erneuert acmeTick selbst)
     // Neues Zertifikat gespeichert -> der HTTPS-Server uebernimmt es erst beim Start: Neustart, sobald
@@ -934,14 +977,18 @@ void loop() {
         ESP.restart();
     }
 
+#if WEIRDOS_FEATURE_WIFI
     if (setupApActive) {
         processDnsRequests();
     }
+#endif
 
     g_web.loop();   // esp_http_server hat eigene Tasks -> no-op (nur Vertrag erfuellt)
 
+#if WEIRDOS_FEATURE_WIFI
     updateWifiConnection();
     updateWifiScan();
+#endif
     updateStatusLed();
     setupGuardTick();               // Captive-Portal-Sicherung (WAN-bewusst) + Werksreset (BOOT/GPIO0)
 
@@ -1289,7 +1336,7 @@ static String dyndnsDoUpdate(const String& ip) {
     // getaddrinfo im Connect den lwIP-Cache -> kein Netz-Roundtrip im heiklen Fenster.
     {
         String host = dyndnsUrlHost(url);
-        if (host.length()) { IPAddress rip; WiFi.hostByName(host.c_str(), rip); }
+        if (host.length()) { IPAddress rip; Network.hostByName(host.c_str(), rip); }   // = WiFi.hostByName (Core 3.x), ohne WiFi-Objekt
     }
 
     for (int attempt = 1; attempt <= MAX_TRIES; attempt++) {
@@ -1313,7 +1360,7 @@ static String dyndnsDoUpdate(const String& ip) {
                 http.end();
             }
         } else {
-            WiFiClient cl;
+            NetworkClient cl;   // Core 3.x: WiFiClient ist nur ein typedef hierauf (WiFi.h nicht noetig)
             began = http.begin(cl, url);
             if (began) {
                 http.setUserAgent("WeirdOS-DynDNS/1");
@@ -1368,8 +1415,13 @@ static void dyndnsApplyEgress() {
 // "wifi": lokale STA-IP (der oeffentliche Wert liegt hinter dem Heim-NAT und ist dem
 // ESP unbekannt -> Republish laeuft ueber den 6-h-Keepalive/Force). Sonst: Mobilfunk-WAN.
 static String dyndnsEgressIp() {
-    if (dyndnsEgress == "wifi")
+    if (dyndnsEgress == "wifi") {
+#if WEIRDOS_FEATURE_WIFI
         return (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : String("");
+#else
+        return String("");   // WLAN nicht im Build -> kein STA-Egress
+#endif
+    }
     return modemWanIp();   // auto + modem
 }
 
@@ -1529,8 +1581,10 @@ static bool weirdReqIsWan(const String& clientIp) {
     IPAddress rip;
     if (!rip.fromString(clientIp)) return true;          // unparsebar -> sicherheitshalber WAN
     if (ipInSubnet(rip, AP_IP, AP_NETMASK)) return false;                       // AP-LAN
+#if WEIRDOS_FEATURE_WIFI
     if (WiFi.isConnected() && (uint32_t)WiFi.localIP() != 0
             && ipInSubnet(rip, WiFi.localIP(), WiFi.subnetMask())) return false; // STA-LAN
+#endif
     return true;
 }
 
@@ -1545,7 +1599,9 @@ static bool accessIsLanIp(const String& clientIp) {
     IPAddress rip;
     if (!rip.fromString(clientIp)) return false;
     if (ipInSubnet(rip, AP_IP, AP_NETMASK)) return true;
+#if WEIRDOS_FEATURE_WIFI
     if (WiFi.isConnected() && (uint32_t)WiFi.localIP() != 0 && ipInSubnet(rip, WiFi.localIP(), WiFi.subnetMask())) return true;
+#endif
     return false;
 }
 
@@ -1624,7 +1680,11 @@ void logHttpRequest(WeirdHttpRequest& req, const String& type);
 
 // -----------------------------------------------------------------------------
 // Accesspoint und Captive-Portal-Ankuendigung
+// Baustein WIFI: SoftAP, DHCP-DNS-Offer und der Captive-DNS-Responder existieren nur
+// mit WLAN-Funk im Bild. Die Aufrufer (setup(), loop(), startSetupAp/stopSetupAp)
+// sind ebenfalls unter WEIRDOS_FEATURE_WIFI gegated.
 // -----------------------------------------------------------------------------
+#if WEIRDOS_FEATURE_WIFI
 
 void startAccessPoint() {
     if (!wifiStackActive()) { Serial.println("[WLAN] startAccessPoint uebersprungen: kein WLAN-Stack."); return; }
@@ -2009,6 +2069,8 @@ void answerDnsQuery(int length) {
     }
 }
 
+#endif // WEIRDOS_FEATURE_WIFI (SoftAP + DHCP-Offer + Captive-DNS)
+
 
 // -----------------------------------------------------------------------------
 // Kamera (OV3660 auf XIAO ESP32S3 Sense)
@@ -2341,6 +2403,7 @@ void initializeCamera() {
 // AP-Lebenszyklus und Erreichbarkeit im Zielnetz
 // -----------------------------------------------------------------------------
 
+#if WEIRDOS_FEATURE_WIFI
 void startMdns() {
     if (mdnsStarted) {
         return;
@@ -2359,6 +2422,7 @@ void startMdns() {
         Serial.println("mDNS could not be started.");
     }
 }
+#endif // WEIRDOS_FEATURE_WIFI (mDNS)
 
 
 // Praeferenz "AP dauerhaft an" aus dem NVS laden/speichern.
@@ -2398,7 +2462,7 @@ void startSetupAp() {
         if (!warned) { warned = true; logEvent("Setup-AP nicht gestartet: kein WLAN-Stack (kein Funk / LAN > WLAN aus)"); }
         return;
     }
-
+#if WEIRDOS_FEATURE_WIFI
     startAccessPoint();
     configureSoftApDhcp();
     startDnsServer();
@@ -2406,6 +2470,7 @@ void startSetupAp() {
     setupApActive = true;
 
     Serial.println("Setup AP active (WiFi configuration).");
+#endif   // ohne WLAN-Baustein ist wifiStackActive() immer false -> oben schon zurueck
 }
 
 
@@ -2414,7 +2479,10 @@ void stopSetupAp() {
     if (!setupApActive) {
         return;
     }
-
+#if !WEIRDOS_FEATURE_WIFI
+    setupApActive = false;   // WLAN nicht im Build: nie ein AP gelaufen -> nur Flag
+    return;
+#else
     dnsSocket.stop();
     if (!wifiStackActive()) { setupApActive = false; return; }   // nie ein AP gelaufen -> nur Flag
     WiFi.softAPdisconnect(true);
@@ -2434,6 +2502,7 @@ void stopSetupAp() {
         Serial.print(DEVICE_HOSTNAME);
         Serial.println(".local");
     }
+#endif // WEIRDOS_FEATURE_WIFI
 }
 
 
@@ -2686,16 +2755,24 @@ void startWebServer() {
     g_web.route(HttpMethod::POST, "/web-transport-save", requireSession(handleWebTransportSave, AuthFail::Json));  // HTTP<->HTTPS
     // ACME / Let's Encrypt (System > Sicherheit > Zertifikat). Die Challenge-Route ist PUBLIC (Let's
     // Encrypt hat keine Session) -- im HTTP-Betrieb liegt sie hier auf :80, im HTTPS-Betrieb auf g_web80.
+#if WEIRDOS_FEATURE_ACME
     g_web.route(HttpMethod::POST, "/acme-save",         requireSession(handleAcmeSave,   AuthFail::Json));
     g_web.route(HttpMethod::POST, "/acme-run",          requireSession(handleAcmeRun,    AuthFail::Json));
     g_web.route(HttpMethod::POST, "/acme-clear",        requireSession(handleAcmeClear,  AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/acme-status.json",  requireSession(handleAcmeStatus, AuthFail::Json));
+#endif // WEIRDOS_FEATURE_ACME
+#if WEIRDOS_FEATURE_TLS_SERVER
     g_web.route(HttpMethod::POST, "/cert-save",         requireSession(handleCertSave,     AuthFail::Json));
     g_web.route(HttpMethod::POST, "/cert-upload",       requireSession(handleCertUpload,   AuthFail::Json));
     g_web.route(HttpMethod::POST, "/cert-selfsign",     requireSession(handleCertSelfsign, AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/cert-info.json",    requireSession(handleCertInfo,     AuthFail::Json));
+#endif // WEIRDOS_FEATURE_TLS_SERVER
+#if WEIRDOS_FEATURE_ACME
     g_web.route(HttpMethod::GET,  "/.well-known/acme-challenge/{token}", handleAcmeChallenge);
+#endif // WEIRDOS_FEATURE_ACME
+#if WEIRDOS_FEATURE_WIFI
     g_web.route(HttpMethod::POST, "/ap-security-save", requireSession(handleApSecuritySave, AuthFail::Json));
+#endif
     // /capture: neutraler WeirdHttp-Handler ueber cameraManager/FrameSource (kein esp_camera-Legacy).
 #if WEIRDOS_FEATURE_CAMERA
     // Einzelbild gehoert zur KAMERA (billig, kein eigener Server) -- nicht zum MJPEG-Streamserver:
@@ -2725,16 +2802,23 @@ void startWebServer() {
     g_web.route(HttpMethod::GET,  "/dev/{device}",       requireSession(handleDevDescriptor, AuthFail::Json));
     g_web.route(HttpMethod::PATCH, "/dev/{device}",      requireSession(handleDevPatch,      AuthFail::Json));   // Resource-API: mode/fps/quality
     // MIGRIERT auf WeirdHttp (Batch 2): generische Sensor-Parameter.
-    g_web.route(HttpMethod::POST, "/save",   requireSession(handleSaveCredentials, AuthFail::Page));   // HTML-Bestaetigung
+#if WEIRDOS_FEATURE_WIFI
+    g_web.route(HttpMethod::POST, "/save",   requireSession(handleSaveCredentials, AuthFail::Page));   // HTML-Bestaetigung (WLAN-Zugangsdaten/AP/Stack)
+#endif
     g_web.route(HttpMethod::POST, "/forget", requireSession(handleForget,          AuthFail::Page));   // Werksreset (HTML)
     // SECURITY-AUDIT (Phase 8): /scan + /status.json werden AUSSCHLIESSLICH von der
     // post-auth App gerufen (APP_SCRIPT bzw. WLAN-Panel); die statische PIN-Gate holt
     // NICHTS. Fuer Captive-Setup/Login ohne Auth NICHT noetig -> Management-Auth.
     // (Bei deaktivierter PIN liefert WeirdAuth::authorized ohnehin true -> Setup bleibt offen.)
+#if WEIRDOS_FEATURE_WIFI
     g_web.route(HttpMethod::GET, "/scan",        requireSession(handleWifiScan,   AuthFail::Json));
-    g_web.route(HttpMethod::GET, "/status.json", requireSession(handleStatusJson, AuthFail::Json));
+#endif
+    g_web.route(HttpMethod::GET, "/status.json", requireSession(handleStatusJson, AuthFail::Json));   // bleibt auch ohne WIFI (WLAN-Felder dann leer/0)
+#if WEIRDOS_FEATURE_WIFI
     g_web.route(HttpMethod::GET, "/captive-api", handleCaptiveApi);   // PUBLIC by design: RFC 8908 / Browser-HTML (Captive-Erkennung)
+#endif
 
+#if WEIRDOS_FEATURE_MODEM
     // Mobilfunk-Modem (USB + PPP): Einstellungen + Aktionen (AJAX/JSON).
     // MIGRIERT (Batch 3, Modem): Save/Datalink/Band.
     g_web.route(HttpMethod::POST, "/modem-save",      requireSession(handleModemSave,     AuthFail::Json));
@@ -2753,6 +2837,7 @@ void startWebServer() {
     g_web.route(HttpMethod::POST, "/modem-bandscan-start", requireSession(handleBandScanStart, AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/modem-neighbours",     requireSession(handleNeighbours,    AuthFail::Json));
     g_web.route(HttpMethod::POST, "/sim-pin",              requireSession(handleSimPinManage,  AuthFail::Json));   // SIM-PIN-Sperre an/aus/aendern/Status
+#endif // WEIRDOS_FEATURE_MODEM
     g_web.route(HttpMethod::GET, "/sysinfo.json", requireSession(handleSysinfoJson, AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/restart-required.json", requireSession(handleRestartRequiredJson, AuthFail::Json));   // gelbe Box (Poll)
     g_web.route(HttpMethod::POST, "/restart",               requireSession(handleRestartNow, AuthFail::Json));            // "Jetzt neu starten"
@@ -2771,17 +2856,23 @@ void startWebServer() {
     // App-Assets als gecachte Dateien (URL mit ?v=Asset-Hash): CSS+JS nicht mehr in jeder Seite inline.
     g_web.route(HttpMethod::GET, "/app.css", [](WeirdHttpRequest& req, WeirdHttpResponse& res) { if (weirdReqWanDenied(req)) { res.send(403, "text/plain", "-"); return; } sendAppCss(res); });
     g_web.route(HttpMethod::GET, "/app.js",  [](WeirdHttpRequest& req, WeirdHttpResponse& res) { if (weirdReqWanDenied(req)) { res.send(403, "text/plain", "-"); return; } sendAppJs(res); });
+#if WEIRDOS_FEATURE_BACKUP
     g_web.route(HttpMethod::GET, "/settings-export", requireSession(handleSettingsExport, AuthFail::Json));
     g_web.routeUpload(HttpMethod::POST, "/settings-import", handleSettingsImportUpload, handleSettingsImportFinish);
+#endif // WEIRDOS_FEATURE_BACKUP
     g_web.route(HttpMethod::POST, "/periph-rescan", requireSession(handlePeriphRescan, AuthFail::Json));  // USB-Host on-demand
     g_web.routeUpload(HttpMethod::POST, "/ota-update", handleOtaUpload, handleOtaFinish);
     g_web.route(HttpMethod::GET, "/modem-status.json", requireSession(handleModemStatusJson, AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/modem-log",     requireSession(handleModemLog,     AuthFail::Json));
+#if WEIRDOS_FEATURE_MODEM
     g_web.route(HttpMethod::GET,  "/modem-usbinfo", requireSession(handleModemUsbInfo, AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/modem-at",      requireSession(handleModemAt,      AuthFail::Json));
+#endif // WEIRDOS_FEATURE_MODEM
     g_web.route(HttpMethod::POST, "/diag-save",     requireSession(handleDiagSave,     AuthFail::Json));   // Entwickler-Diagnose an/aus
+#if WEIRDOS_FEATURE_MODEM
     g_web.route(HttpMethod::GET,  "/modem-info",    requireSession(handleModemInfo,    AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/modem-json",    requireSession(handleModemJson,    AuthFail::Json));
+#endif // WEIRDOS_FEATURE_MODEM
     // MIGRIERT (Batch 6, DynDNS/Netz-Diag):
     g_web.route(HttpMethod::POST, "/dyndns-save",         requireSession(handleDyndnsSave,        AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/dyndns-status.json",  requireSession(handleDyndnsStatusJson,  AuthFail::Json));
@@ -2828,6 +2919,7 @@ void startWebServer() {
     g_web.route(HttpMethod::POST, "/ipsec-user-add",    requireSession(handleIpsecUserAdd,    AuthFail::Json));   // Server-Rolle: Benutzer
     g_web.route(HttpMethod::POST, "/ipsec-user-del",    requireSession(handleIpsecUserDel,    AuthFail::Json));
     // MIGRIERT (Batch 8, Netz-Scan):
+#if WEIRDOS_FEATURE_NETSCAN
     g_web.route(HttpMethod::POST, "/net-scan-start",     requireSession(handleNetScanStart,     AuthFail::Json));  // 7.10: LAN-Host-Scan
     g_web.route(HttpMethod::GET,  "/net-scan.json",      requireSession(handleNetScanJson,      AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/net-ping",           requireSession(handleNetPing,          AuthFail::Json));  // 7.10: Einzel-Ping
@@ -2841,6 +2933,7 @@ void startWebServer() {
     g_web.route(HttpMethod::GET,  "/net-chscan.json",    requireSession(handleNetChScanJson,    AuthFail::Json));
     g_web.route(HttpMethod::POST, "/net-deepch-start",   requireSession(handleNetDeepChStart,   AuthFail::Json));  // 7.15: Tiefen-Kanal-Scan
     g_web.route(HttpMethod::GET,  "/net-deepch.json",    requireSession(handleNetDeepChJson,    AuthFail::Json));
+#endif // WEIRDOS_FEATURE_NETSCAN
 #if WEIRDOS_HAS_BT
     g_web.route(HttpMethod::POST, "/bt-scan-start",  requireSession(handleBtScanStart,  AuthFail::Json));   // 8.0: BLE-Geraetesuche
     g_web.route(HttpMethod::GET,  "/bt-scan.json",   requireSession(handleBtScanJson,   AuthFail::Json));
@@ -2853,9 +2946,11 @@ void startWebServer() {
     g_web.route(HttpMethod::POST, "/energy-save",  requireSession(handleEnergySave,  AuthFail::Json));
     g_web.route(HttpMethod::POST, "/general-save",  requireSession(handleGeneralSave, AuthFail::Json));
 
+#if WEIRDOS_FEATURE_WIFI
     registerCaptivePortalEndpoints();
 
     g_web.onNotFound(handleUnknownRequest);   // Captive-Fallback: unbekannte Route -> Portal (public)
+#endif   // ohne WLAN-Baustein kein Captive-Portal -> Adapter-Default 404 fuer unbekannte Routen
 
     // Socket-Budget: der Browser haelt ~6 Keep-alive-Verbindungen UND die App-Seite pollt
     // an ~6 Stellen alle 2-3 s. Bei 7 Sockets + lru_purge wird bei der naechsten Verbindung
@@ -2882,7 +2977,7 @@ void startWebServer() {
             g_web.useTlsCert(s_certPem, s_keyPem);
             Serial.printf("TLS: %s\n", srcText.c_str());
         } else {
-            Serial.println("TLS-Cert-Erzeugung fehlgeschlagen -> Fallback auf HTTP:80.");
+            Serial.printf("TLS: %s -> Fallback auf HTTP:80.\n", srcText.length() ? srcText.c_str() : "Zertifikat-Erzeugung fehlgeschlagen");
             webHttpsEnabled = false;
         }
     }
@@ -2912,6 +3007,7 @@ void startWebServer() {
     // NUR wenn Let's Encrypt aktiviert ist: der Hilfsserver kostet ~10 KB internen Heap (Stack +
     // httpd), und mit HTTPS + Video-Reserve ist der P4 am Limit (Boot 64k frei / 30k am Stueck ->
     // PPP-Start scheiterte stumm). Ohne ACME gibt es auf Port 80 nichts zu beantworten.
+#if WEIRDOS_FEATURE_ACME
     if (g_web.running() && g_web.isTls() && acmeConfig().enabled) {
         g_web80.setCtrlPort(32772);
         g_web80.setStackSize(6144);
@@ -2922,11 +3018,14 @@ void startWebServer() {
         Serial.printf("Port-80-Hilfsserver (ACME-Challenge + Redirect auf HTTPS): %s\n",
                       g_web80.running() ? "laeuft" : "NICHT gestartet");
     }
-    else if (!g_web.running())   // vorher stand hier ein nacktes else: "FAILED" auch bei laufendem HTTP-Server (irrefuehrend)
+    else
+#endif // WEIRDOS_FEATURE_ACME
+    if (!g_web.running())   // vorher stand hier ein nacktes else: "FAILED" auch bei laufendem HTTP-Server (irrefuehrend)
         Serial.printf("Control-plane FAILED to start (err=0x%x)\n", (unsigned)g_web.lastError());
 }
 
 
+#if WEIRDOS_FEATURE_WIFI
 void registerCaptivePortalEndpoints() {
     // SECURITY-AUDIT (Phase 8): ALLE Routen hier bleiben BEWUSST public (kein
     // requireSession). Sie sind reine OS-Konnektivitaets-/Captive-Probes (Android 204,
@@ -2983,6 +3082,7 @@ void handleUnknownRequest(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     resNoCache(res);
     res.redirect(location, 302);
 }
+#endif // WEIRDOS_FEATURE_WIFI (Captive-Probes + Captive-Fallback)
 
 
 // ENTFERNT mit dem WeirdHttpEsp-Flip: redirectToConfigurationPage() (unbenutzt),
@@ -3009,6 +3109,7 @@ void logHttpRequest(WeirdHttpRequest& req, const String& type) {
 // Captive Portal API (RFC 8908)
 // -----------------------------------------------------------------------------
 
+#if WEIRDOS_FEATURE_WIFI
 void handleCaptiveApi(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     logHttpRequest(req, "Captive portal API");
 
@@ -3055,11 +3156,15 @@ void handleCaptiveApi(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     resNoCache(res);
     res.send(200, "application/captive+json", json);
 }
+#endif // WEIRDOS_FEATURE_WIFI (Captive-API)
 
 
 // -----------------------------------------------------------------------------
 // WLAN-Verbindung als nichtblockierende State Machine
+// Baustein WIFI: ohne WLAN-Funk bleibt wifiState fuer immer PORTAL_WIFI_IDLE
+// (wifiStateName()/wifiStatusText()/wifiPortalConnected() bleiben ungegated).
 // -----------------------------------------------------------------------------
+#if WEIRDOS_FEATURE_WIFI
 
 void beginWifiConnection() {
     if (!wifiStackActive()) { wifiState = PORTAL_WIFI_IDLE; return; }   // kein Stack -> WiFi.begin() wuerde ESP-Hosted lazy initialisieren
@@ -3161,6 +3266,8 @@ void updateWifiConnection() {
     }
 }
 
+#endif // WEIRDOS_FEATURE_WIFI (STA-State-Machine)
+
 
 const char* wifiStateName() {
     switch (wifiState) {
@@ -3180,8 +3287,9 @@ const char* wifiStateName() {
 
 
 // -----------------------------------------------------------------------------
-// Asynchroner WLAN-Scan mit Ergebnis-Cache
+// Asynchroner WLAN-Scan mit Ergebnis-Cache (Baustein WIFI, samt /scan-Handler)
 // -----------------------------------------------------------------------------
+#if WEIRDOS_FEATURE_WIFI
 
 void requestWifiScan() {
     if (!wifiStackActive()) return;   // kein Stack -> WiFi.scanNetworks() wuerde ESP-Hosted lazy initialisieren
@@ -3378,6 +3486,8 @@ String createNetworkArrayJson() {
 
     return json;
 }
+
+#endif // WEIRDOS_FEATURE_WIFI (Scan + /scan)
 
 
 // -----------------------------------------------------------------------------
@@ -4287,6 +4397,13 @@ void handleWebWanSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
 // nach dem TLS-Wechsel nicht weiterleben).
 void handleWebTransportSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     bool wantHttps = req.hasArg("https");
+#if !WEIRDOS_FEATURE_TLS_SERVER
+    if (wantHttps) {   // Baustein abgewaehlt: nicht erst nach dem Neustart auf HTTP zurueckfallen
+        resNoCache(res);
+        res.send(200, "application/json", "{\"ok\":false,\"msg\":\"HTTPS-Server nicht im Build enthalten (WEIRDOS_FEATURE_TLS_SERVER=0).\"}");
+        return;
+    }
+#endif
     bool changed = (wantHttps != webHttpsEnabled);
     saveWebHttpsEnabled(wantHttps);
     if (changed) WeirdAuth::invalidateOnTransportChange(wantHttps);
@@ -4299,6 +4416,7 @@ void handleWebTransportSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
 }
 
 
+#if WEIRDOS_FEATURE_ACME (ACME-Handler)
 // ---- ACME / Let's Encrypt (System > Sicherheit > Zertifikat) -------------------------------
 // App-Hook fuer den ACME-Client: WAN-Interface wie bei DynDNS (EgressPolicy) + DNS-Route.
 bool acmeAppResolveEgress(NetIface& out) {
@@ -4384,7 +4502,9 @@ void handleAcmeClear(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     logEvent("ACME: Zertifikat geloescht (zurueck zu self-signed ab Neustart)");
     res.sendJson("{\"ok\":true,\"msg\":\"Zertifikat geloescht. Ab dem naechsten Neustart wieder self-signed.\"}");
 }
+#endif // WEIRDOS_FEATURE_ACME (ACME-Handler)
 
+#if WEIRDOS_FEATURE_TLS_SERVER (Zertifikats-Handler)
 // --- Zertifikatsverwaltung (cert_store): Herkunft, Upload, self-signed, Info ---
 
 void handleCertSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
@@ -4445,7 +4565,9 @@ void handleCertInfo(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     j += "}";
     res.sendJson(j);
 }
+#endif // WEIRDOS_FEATURE_TLS_SERVER (Zertifikats-Handler)
 
+#if WEIRDOS_FEATURE_ACME (Challenge + Port-80-Redirect)
 // http-01: Let's Encrypt holt http://<domain>/.well-known/acme-challenge/<token> -- PUBLIC, kein
 // WAN-Guard, keine Session (die CA hat keine). Antwort = Key-Authorization (token.thumbprint).
 void handleAcmeChallenge(WeirdHttpRequest& req, WeirdHttpResponse& res) {
@@ -4469,6 +4591,7 @@ void handleHttpToHttpsRedirect(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     res.header("Cache-Control", "no-store");
     res.redirect("https://" + host + req.path(), 302);
 }
+#endif // WEIRDOS_FEATURE_ACME (Challenge + Port-80-Redirect)
 
 // Baut die <option>-Liste fuer eine JPEG-Qualitaets-Auswahl ist nicht noetig:
 // Qualitaet ist ein Slider. Hier nur die Info-Zeile oben auf der Seite.
@@ -4596,6 +4719,7 @@ void handleStatusJson(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     json += escapeJson(configuredSsid);
     json += "\",";
 
+#if WEIRDOS_FEATURE_WIFI
     json += "\"ip\":\"";
     json += (wifiState == PORTAL_WIFI_CONNECTED)
         ? WiFi.localIP().toString()
@@ -4611,6 +4735,9 @@ void handleStatusJson(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     json += "\"apClients\":";
     json += String(WiFi.softAPgetStationNum());
     json += ",";
+#else
+    json += "\"ip\":\"\",\"rssi\":0,\"apClients\":0,";   // WLAN nicht im Build
+#endif
 
     json += "\"apActive\":";
     json += setupApActive ? "true" : "false";
@@ -4679,6 +4806,7 @@ void sendModemJson(WeirdHttpResponse& res, bool ok, const String& msg) {
 }
 
 
+#if WEIRDOS_FEATURE_MODEM (Modem-Handler)
 // Speichert APN/Zugangsdaten (NVS) und wendet den Autoconnect an (Modem-Flash).
 void handleModemSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     String apn = req.arg("apn");       apn.trim();
@@ -4862,6 +4990,7 @@ void handleSimPinManage(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     String np     = req.arg("newpin"); np.trim();
     res.send(200, "application/json", modemSimPinManage(action, pin, np));
 }
+#endif // WEIRDOS_FEATURE_MODEM (Modem-Handler)
 
 // Allgemeiner Systemstatus (Diagnose -> Funktion): Laufzeit, RAM/PSRAM, CPU, WLAN.
 // 7.4d.3: WireGuard-Crash-Lokalisierung. RTC_NOINIT ueberlebt den Panic-Reboot (nicht
@@ -4909,9 +5038,13 @@ void handleSysinfoJson(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     j += ",\"psram\":";   j += (uint32_t)ESP.getFreePsram();
     j += ",\"psramtot\":";j += (uint32_t)ESP.getPsramSize();
     j += ",\"cpu\":";     j += getCpuFrequencyMhz();
+#if WEIRDOS_FEATURE_WIFI
     j += ",\"wifirssi\":";j += WiFi.RSSI();
     j += ",\"wifiip\":\"";j += WiFi.localIP().toString();  j += "\"";
     j += ",\"apip\":\"";  j += WiFi.softAPIP().toString();  j += "\"";
+#else
+    j += ",\"wifirssi\":0,\"wifiip\":\"\",\"apip\":\"\"";   // WLAN nicht im Build
+#endif
     j += ",\"camera\":";  j += cameraReady ? "true" : "false";
     j += ",\"usb\":\"";   j += escapeJson(modemStatusText()); j += "\"";
     j += ",\"flash\":";   j += (uint32_t)ESP.getFlashChipSize();
@@ -4920,6 +5053,7 @@ void handleSysinfoJson(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     res.send(200, "application/json", j);
 }
 
+#if WEIRDOS_FEATURE_BACKUP (Export/Import-Handler)
 // Vollstaendige Sicherung exportieren (System -> Sicherung) ueber den zentralen
 // NVS-Manager -> automatisch ALLE Namespaces, OHNE Secrets (Denylist). Nach einem
 // Restore sind Passwoerter/PIN neu zu setzen.
@@ -4953,6 +5087,7 @@ void handleSettingsImportFinish(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     delay(1500);
     ESP.restart();
 }
+#endif // WEIRDOS_FEATURE_BACKUP (Export/Import-Handler)
 
 // Peripherie: "Neue Geraete suchen" -> USB-Host bei Bedarf OHNE Neustart starten (HotPlug auf Abruf).
 // Gated: nur wenn Host noch nicht laeuft, Modem-Modus an und KEIN PC/Netzteil am USB-Port (SOF).
@@ -4973,7 +5108,9 @@ void handlePeriphRescan(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     String msg; bool ok = true;
     if (usbHostStarted) {
         msg = "USB-Host laeuft bereits -- Geraeteliste wird live aktualisiert.";
-    } else if (!modemUsbEnabled) {
+    }
+#if WEIRDOS_FEATURE_MODEM
+    else if (!modemUsbEnabled) {
         ok = false; msg = "USB-Modem ist unter WAN -> Modem deaktiviert.";
     } else if (usbDeviceService.conflictsWithModemPort()) {
         ok = false; msg = "Der USB-Port " + periphModemPort + " ist als PC-Geraet (Webcam) konfiguriert -- der Modem-Host bleibt aus "
@@ -4983,7 +5120,9 @@ void handlePeriphRescan(WeirdHttpRequest& req, WeirdHttpResponse& res) {
         ok = false; msg = "Am USB-Port haengt ein PC/Netzteil (Programmiermodus) -- der Host bleibt aus. "
                           "Versorge den ESP anders, stecke das Modem an den USB-Port und suche erneut.";
 #endif
-    } else {
+    }
+#endif // WEIRDOS_FEATURE_MODEM
+    else {
         startUsbHost();
         usbHostStarted = modemUsbHostReady;   // nur bei Erfolg (sonst wurde alles zurueckgerollt)
         if (usbHostStarted) {
@@ -5591,6 +5730,7 @@ void handleDiagWgRoute(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     res.send(200, "application/json", wgRouteDiagJson());
 }
 
+#if WEIRDOS_FEATURE_NETSCAN (Sweep/Ping/Resolve-Handler)
 // 7.10: LAN-Host-Scan (Ping-Sweep des WLAN-Subnetzes) + Einzel-Ping von der MCU aus.
 void handleNetScanStart(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     // D1/D2: Ziel = CIDR oder Attachment-id (leer = WLAN-LAN), mode = auto|arp|icmp. Ablehnung mit Grund
@@ -5624,6 +5764,7 @@ void handleNetPing(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     resNoCache(res);
     res.send(200, "application/json", netPingJson(ip));
 }
+#endif // WEIRDOS_FEATURE_NETSCAN (Sweep/Ping/Resolve-Handler)
 // 8.0: Bluetooth-LE (bt_scan.*). BLE-only auf S3 - kein Classic/Audio (Hardware-Grenze).
 void handleBtScanStart(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     int secs = req.hasArg("secs") ? req.arg("secs").toInt() : 6;
@@ -5654,6 +5795,7 @@ void handleBtRelease(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     res.send(200, "application/json", "{\"ok\":true,\"msg\":\"BT-Stack freigegeben.\"}");
 }
 // 7.11: TCP-Port-Scan starten (ip + optional from/to; ohne = haeufige Ports) + Ergebnisse.
+#if WEIRDOS_FEATURE_NETSCAN (Portscan/Funk-Handler)
 void handleNetPortScanStart(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     String ip = req.arg("ip"); ip.trim();
     int from = req.hasArg("from") ? req.arg("from").toInt() : 0;
@@ -5705,6 +5847,7 @@ void handleNetDeepChJson(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     resNoCache(res);
     res.send(200, "application/json", netDeepChScanJson());
 }
+#endif // WEIRDOS_FEATURE_NETSCAN (Portscan/Funk-Handler)
 void handleWgClientDel(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     int idx = req.hasArg("i") ? req.arg("i").toInt() : -1;
     bool ok = wireguardService.deleteClient(idx);
@@ -5887,10 +6030,12 @@ void handleGeneralSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     }
 
     saveGeneralPrefs();                          // persistiert host + cryptopsram
+#if WEIRDOS_FEATURE_WIFI
     WiFi.setHostname(deviceHostname.c_str());   // wirkt bei naechster (Re)Verbindung
     MDNS.end();                                 // mDNS live mit neuem Namen neu starten
     mdnsStarted = false;
     startMdns();
+#endif
 
     Serial.print("General saved: host=");
     Serial.print(deviceHostname);
@@ -5957,6 +6102,7 @@ static String firstNumericLine(const String& raw) {
     return "";
 }
 
+#if WEIRDOS_FEATURE_MODEM (AT/Info/JSON-Handler)
 static String atRun(const char* cmd) { return modemAtTest(3, 0x0F, 0x86, cmd); }
 
 // Band-Nummer (QENG-Feld, "3" oder "LTE BAND 3") -> nominale Frequenz in MHz
@@ -6103,6 +6249,7 @@ void handleModemUsbInfo(WeirdHttpRequest& req, WeirdHttpResponse& res) {
         strlen(g_modemUsbInfo) ? g_modemUsbInfo
                                : "(kein Modem-Descriptor - ist 2C7C:6005 angeschlossen?)");
 }
+#endif // WEIRDOS_FEATURE_MODEM (AT/Info/JSON-Handler)
 
 
 // Gibt den aufgefangenen ESP-IDF-Log (USB/Enumeration) als Klartext aus.
@@ -6151,7 +6298,11 @@ String wifiStatusText() {
             return "fehlgeschlagen";
 
         default:
+#if WEIRDOS_FEATURE_WIFI
             return "nicht konfiguriert";
+#else
+            return "nicht im Build enthalten";   // WEIRDOS_FEATURE_WIFI=0
+#endif
     }
 }
 
@@ -6164,6 +6315,7 @@ void printNetworkStatus() {
     Serial.println();
     Serial.println("Network status:");
 
+#if WEIRDOS_FEATURE_WIFI
     Serial.print("  AP SSID: ");
     Serial.println(CONFIG_AP_SSID);
 
@@ -6172,6 +6324,9 @@ void printNetworkStatus() {
 
     Serial.print("  Captive portal API: ");
     Serial.println(captivePortalApiUri);
+#else
+    Serial.println("  WLAN: nicht im Build enthalten (WEIRDOS_FEATURE_WIFI=0) -> kein AP, kein Captive-Portal");
+#endif
 
     Serial.print("  STA state: ");
     Serial.println(wifiStateName());
