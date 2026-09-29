@@ -45,14 +45,29 @@ und im Composition Root nur unter ihrem Schalter referenziert.
 | **Flash & Heap** – die „gezippt hochladen"-Frage ehrlich beantwortet | [`docs/flash-and-heap.md`](docs/flash-and-heap.md) |
 | Sketch-/Hardware-Doku (Board-Settings, USB-Host, Flashen) | [`README.sketch.md`](README.sketch.md) |
 
-## Bauen
+## Bauen & Flashen
 
-`arduino-cli` mit esp32-Core 3.3.11. Beispiel S3:
+**Über das Cam-Tool.** Der vorgesehene Weg ist das Cam-Tool
+(`Miguel0888/ipcam-lan-discovery`): es kompiliert und flasht über `arduino-cli`.
+Der Bedienende muss dafür nur **die Arduino-IDE installiert haben** — das Tool
+benutzt die dort mitgelieferte `arduino-cli` (es liefert sie aus GPL-Gründen
+nicht selbst mit) und wählt Board/FQBN aus dem Board-Katalog.
+
+**Manuell** geht genauso, esp32-Core 3.3.11. Beispiel S3:
 
 ```
 FQBN="esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
 arduino-cli compile --fqbn "$FQBN" .
+arduino-cli upload  --fqbn "$FQBN" -p <PORT> .
 ```
 
-Flashen weiterhin manuell aus Arduino Studio (S3: BOOT+RESET-Hack, siehe
-`README.sketch.md`). Board-Settings: [`BOARD_SETTINGS.md`](BOARD_SETTINGS.md).
+**S3: kein BOOT+RESET-Hack mehr im Normalfall.** WeirdOS erkennt am
+USB-Serial-JTAG (SOF), ob ein **PC** oder ein **Modem** am USB hängt
+(`usb_serial_jtag_is_connected()`, `weirdos-esp32.ino`). Hängt ein PC dran,
+übernimmt der Sketch den USB-OTG-Host **nicht** — der Programmier-/Auto-Reset-Port
+bleibt erhalten, und das Flashen läuft ohne Tastendruck. Der alte BOOT+RESET-Hack
+ist nur noch der Rückfall für den Sonderfall, dass der Host schon lief, bevor der
+PC angeschlossen wurde (z. B. Betrieb an Powerbank/Modem ohne PC).
+
+Board-Settings: [`BOARD_SETTINGS.md`](BOARD_SETTINGS.md). Historische
+Sketch-/Hardware-Doku (inkl. der alten Hack-Beschreibung): `README.sketch.md`.

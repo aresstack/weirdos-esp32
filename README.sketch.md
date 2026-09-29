@@ -1,4 +1,5 @@
 > **Hinweis:** In diesem Repo heißt der Sketch `weirdos-esp32.ino` und liegt im Wurzelverzeichnis. Die Flash-Befehle unten nennen noch den alten Ordnernamen `esp32-modem-host` — ersetze ihn durch `.` (das Repo-Wurzelverzeichnis) bzw. `weirdos-esp32`.
+> **Überholt:** Der unten beschriebene BOOT+RESET-Hack ist im Normalfall nicht mehr nötig — WeirdOS erkennt PC vs. Modem am USB und gibt bei angeschlossenem PC den Programmierport frei. Siehe `README.md` → „Bauen & Flashen".
 
 # esp32-modem-host — XIAO ESP32-S3 als USB-Host zum EC200A
 
