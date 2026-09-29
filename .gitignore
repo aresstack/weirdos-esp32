@@ -1,0 +1,9 @@
+# PlatformIO / ESP-IDF generated state
+.pio/
+sdkconfig
+sdkconfig.old
+
+# Staged Arduino sketch and PlatformIO's generated C++ translation unit.
+# The authoritative sketch remains one level above src/.
+src/Homeserver_Autosetup_Modem_V1_USBHost.ino
+src/Homeserver_Autosetup_Modem_V1_USBHost.ino.cpp

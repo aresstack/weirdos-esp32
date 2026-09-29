@@ -1,0 +1,42 @@
+WeirdIKE
+========
+
+Copyright (C) 2026 Miguel Angelo Fernandez Iglesias and the WeirdIKE contributors.
+
+WeirdIKE is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License as published by the Free Software Foundation, either version 2 of
+the License, or (at your option) any later version. See the LICENSE file.
+
+Provenance / attribution
+------------------------
+WeirdIKE's IKEv2 code (message parsing/encoding, proposal negotiation, key derivation, state
+machine, NAT detection) is an INDEPENDENT implementation written to RFC 7296. It is NOT a verbatim
+derivative of any CycloneIPSEC file (see PROVENANCE.md for the precise classification). CycloneIPSEC
+was studied as a reference to understand the protocol, and the project keeps the GPL license partly
+to leave the door open to importing Cyclone code later. Reference / inspiration:
+
+    CycloneIPSEC -- IPsec/IKEv2 Library
+    Copyright (C) 2010-2026 Oryx Embedded SARL (www.oryx-embedded.com)
+    Licensed under GNU General Public License version 2 (or later).
+    https://github.com/Oryx-Embedded/CycloneIPSEC
+    Pinned upstream: v2.6.4, commit e549c03f5c72bed8c278578f7129bccd157b1f08 (see PROVENANCE.md).
+
+WeirdIKE is distributed under GPL-2.0-or-later (chosen license). Should any CycloneIPSEC code be
+imported verbatim in the future, those files will retain their original Oryx Embedded copyright
+notices and be listed in PROVENANCE.md; none are so imported today.
+
+What WeirdIKE changes vs. upstream CycloneIPSEC
+-----------------------------------------------
+  * Replaces the Oryx platform layer (CycloneTCP sockets/NetInterface, CycloneCRYPTO, Oryx
+    os_port) with three tiny injectable adapters: crypto (default backend: mbedTLS), UDP
+    transport (BSD sockets / lwIP), and platform (clock). No second TCP/IP stack.
+  * Makes the IKE core OS-agnostic and poll-driven (no OsTask/OsEvent), so the same core runs
+    on ESP32/Arduino, NuttX and a plain host.
+  * Adds an ESP (IPsec) engine with Tunnel Mode (CycloneIPSEC upstream is Transport-Mode only).
+
+Third-party components used via adapters (NOT included in this repository)
+--------------------------------------------------------------------------
+  * mbedTLS (Apache-2.0) -- referenced by the crypto adapter, linked at integration time.
+    Apache-2.0 is compatible with GPLv3; combined distributions are covered by GPL-2.0-or-later
+    resolved to version 3. mbedTLS source is not part of this repository.
+  * lwIP (BSD-3-Clause) -- referenced by the ESP32 transport adapter at integration time.

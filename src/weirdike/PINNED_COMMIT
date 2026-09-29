@@ -1,0 +1,94 @@
+WeirdIKE vendored from Miguel0888/WeirdIKE @ 337a25d078685c8cbdb7d3eb6575421ed09c45ce
+(GPL-2.0-or-later; independent RFC 7296 implementation -- see PROVENANCE.md / NOTICE).
+
+Layout: FLAT (all headers + sources in this one directory) so a single include path
+(-Isrc/weirdike) resolves every bare #include. Contents = WeirdIKE include/ + src/core/ +
+src/esp/ + src/crypto/crypto_mbedtls.{c,h}. NOT included: host-only transports/tests/probes;
+the ESP32 UDP transport bound to the egress source IP lives in ../../ipsec_runtime.cpp.
+
+Build: add this dir to the include path and compile every *.c here (Arduino IDE compiles
+src/ recursively; the PlatformIO src/CMakeLists.txt globs weirdike/*.c). Requires mbedTLS
+MD/HMAC (SHA-1/SHA-256/SHA-384/SHA-512), AES-CBC/GCM, BIGNUM/MPI, CTR_DRBG and ENTROPY.
+DH14 is implemented with mbedtls_mpi; MBEDTLS_DHM_C is NOT required (RFC3526 P/G data macros
+are used from mbedtls/dhm.h).
+
+Pinned behavior relevant to WeirdOS: algorithm-agile IKE-SA offers SHA-256 and SHA-512 suites;
+FRITZ!Box 6860 interop accepts its all-zero Transform more/last quirk; real-device test reached
+CHILD_SA_ESTABLISHED over NAT-T/UDP-4500 while keeping ESP AES-CBC-256/HMAC-SHA2-256-128/NO_ESN.
+
+To update: re-copy from WeirdIKE and bump the SHA above. Do NOT fork/edit vendored files in place.
+
+Update 2026-09-03 (Slice 1 "Proposal-Policy", upstream 5d6f1d3): new src/core/ike_policy.{c,h};
+weirdike_config_t gained ike_policy/child_policy (typed allow-lists, WEIRDIKE_POLICY_MAX 16);
+the IKE_SA_INIT offer is ONE proposal generated from the policy (no longer two coupled
+proposals), the responder selection is gated against the policy (IKE + Child) -> FAILED on a
+transform outside it; weirdike_get_diag() also reports the negotiated Child suite. The host
+(ipsec_runtime.cpp) maps ipsec_crypto_caps ids -> IANA ids and never passes NULL policies when the
+user saved an explicit policy. Hardware regression vs FRITZ!Box pending (wire format changed).
+
+Update 2026-09-07 (Workspace-Refactor, upstream bb35131 branch workspace-refactor): explicit memory
+model. weirdike_ctx = small long-lived state (IKE-SA state objects in 2 slots, Child-SA slots); every
+message-sized buffer lives in a separate WORKSPACE block (SA_INIT transcript, per-IKE-SA request/
+response caches, RX plaintext, TX build area, crypto scratch). API break: weirdike_init(ctx_mem,
+ctx_len, ws_mem, ws_len, ...) fully caller-owned; weirdike_new(..., const weirdike_mem_t *mem) with a
+provider alloc(bytes, alignment, kind)/free(ptr, kind); weirdike_mem_req() reports sizes+alignment;
+ike_platform_t lost alloc/free. Parsers return views (ike_span_t) into the workspace. ESP:
+esp_session_init(..., scratch, cap) takes a host-placed RX scratch (>= ESP_MAX_PACKET); esp_open()
+takes a scratch too. WeirdOS (ipsec_runtime.cpp): CONTEXT -> internal RAM, WORKSPACE -> PSRAM,
+ESP scratch -> PSRAM (one per session slot). Reason: 'Stack protection fault' in loopTask on the
+P4 while handling the IKE_AUTH response (largest frame 9680 B before, 976 B after, P4 toolchain -Os).
+
+Update 2026-09-07 (IKE-SA rekey, upstream 052682f = main): CREATE_CHILD_SA with an IKE proposal + KE in
+both directions. New IKE SA in the second state slot (own SPIs, SKEYSEED = prf_old(SK_d, g^ir|Ni|Nr),
+prf+ with the new suite, Message IDs from 0, per-slot role/I-flag/SK direction); Child SAs untouched;
+old IKE SA kept alive (own keys/Message-ID space) until its DELETE is exchanged, then wiped.
+Collisions/transitions -> TEMPORARY_FAILURE. New API: weirdike_rekey_ike(), weirdike_ike_generation(),
+cfg.ike_lifetime_s (0 = only peer-driven / on demand), diag.ike_generation. WeirdOS: console
+'ipsec ikerekey', diag "ikeGen". CI: loopback runs 7-9 + strongSwan ike-rekey / peer-ike-rekey.
+
+PO verdict 2026-09-07: IKE-SA rekey ACCEPTED (function + hardware); collision handling PARTIAL.
+KNOWN LIMITATION: "Simultaneous IKE-SA rekey collision resolution by nonce comparison: NOT
+IMPLEMENTED; current implementation serializes the collision using TEMPORARY_FAILURE and retry."
+(RFC 7296 2.8.2/2.25.2 SHOULD, not MUST -> interop gap, not a violation.) Also: ike_lifetime_s is 0
+in WeirdOS (no self-initiated lifetime rekey; peer-driven + manual 'ipsec ikerekey' work). PFS and
+EAP/X.509 on the P4 remain separate PENDING gates. Vendored sources unchanged (upstream doc-only
+commit 0889bf8 after 052682f).
+
+Update 2026-09-07 (trust model, WeirdIKE 51c6dcb): the EAP server certificate gets a TRUST MODEL
+instead of the single mandatory ca_pem. cfg.trust_mode (weirdike_trust_mode_t): ANCHOR_PEM (0,
+today's behaviour: own anchors in ca_pem, mandatory), HOST_STORE (public CAs of the host trust
+store), HOST_STORE_PLUS_PEM (host store + extras), NONE (no chain/identity check -- the IKE_AUTH
+signature is STILL verified, and the IKE IDr policy remote_id still applies). Exactly TWO PEM
+blocks: ca_pem = trust anchors (need not be self-signed; an intermediate listed here ends the
+chain; the exact or self-signed server certificate may be an anchor -> adapter pins a leaf that is
+byte-identical to an anchor), extra_pem = chain material only (never ends a chain). The host trust
+store is a HOST hook (weirdike_crypto_mbedtls_set_host_store; WeirdOS: ESP-IDF certificate bundle
+via ipsec_trust_store.cpp); missing store -> the core REFUSES the host-store modes at start, no
+fallback. CI: x509 selftest per mode + strongSwan 3-tier PKI matrix (14 cases: NONE ok / IDr still
+enforced, host store ok / foreign / absent, host+pem extra anchor, intermediate as chain material
+vs as explicit anchor, self-signed server cert as own anchor, exact-leaf pin ok / wrong leaf).
+Migration in WeirdOS: existing profiles with ca-pem keep "own anchor" semantics; new EAP profiles
+default to "public CAs". Hardware gate with real EAP credentials: PENDING (user-run).
+
+Update 2026-09-07 (LANCOM diagnosis, WeirdIKE be14466): IKE_AUTH outcome semantically separated in
+the diag -- ike_auth_rejected (peer error notify, NO AUTH payload from it = it rejected OUR
+authentication), auth_local_fail (peer AUTH present, our verification failed), child_notify ONLY
+for a Child SA rejected after a successful IKE_AUTH; weirdike_notify_name(); secrets-free wire
+summaries "IKE_AUTH #1 wire: auth/IDi/IDr/AUTH/CP/SAi2/TSi/TSr" before sending and "IKE_AUTH
+response payloads: IDr/AUTH/CP/SA/TSi/TSr/EAP/NOTIFY" after decrypt. IKE Config Mode for PSK:
+CP(CFG_REQUEST) now also in the PSK IKE_AUTH when request_cp is set (RFC 7296 2.19; previously
+only the EAP round carried it -- the PSK path silently ignored request_cp). CI: wrong-PSK case
+asserts the semantic split; strongSwan PSK + pool (m1-cp.conf) proves the virtual IP via CP.
+NOT claimed: that the missing CP caused LANCOM's AUTHENTICATION_FAILED (24) -- see the report.
+
+Night run 2026-09-08 (WeirdIKE main up to b57147c): A1 AES-CBC-128/192 (IKE + ESP), A2 full HMAC-SHA2
+matrix (IKE PRF/INTEG SHA-384, ESP HMAC-SHA2-384-192 and -512-256), B1/B2/B3 D-H agility (MODP3072/4096,
+ECP256/384/521, Brainpool-256/384/512, Curve25519; INVALID_KE_PAYLOAD re-send for any supported group;
+per-group KE lengths; peer-rekey selection is policy-aware), C2/D configurable liveness (dpd_disable /
+dpd_interval_s / dpd_retries / natt_keepalive_s) + child byte lifetime (child_lifetime_kb via
+weirdike_child_traffic) + child-rekey diagnosis (child_generation / child_rekey_dh / child_rekey_ke /
+child_bytes), E2 several TSr selectors (remote_ts_extra[], remote_ts_list in the child SA), I2 COOKIE
+challenge. Every item has a strongSwan interop gate or a selftest in CI. NOT done: AES-GCM/ChaCha20
+(A3/A4), 3DES/MD5 (A5), MODP6144/8192 + Curve448 (no mbedTLS constants / not enabled on ESP-IDF),
+simultaneous IKE-SA rekey by nonce comparison (C3, needs a third IKE-SA slot), IPv6 (E4), client
+certificates (G3), ESN (H2), IKEv2 fragmentation (H3), MOBIKE (I1). Hardware: none this night.

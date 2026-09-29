@@ -1,0 +1,44 @@
+# ============================================================================
+# sdkconfig.defaults  --  lwIP-Fenster-A/B-Test fuer den PPP-Datenpfad
+#
+# Empirischer Befund:
+#   PC  + EC200A/B20/SINR~10: 6,8 / 6,0 Mbit/s
+#   ESP + EC200A/B20/SINR~9 : 0,55 / 0,31 Mbit/s
+# Die Funkstrecke erklaert die Differenz damit nicht. txwait=0/txtimeout=0
+# entlastet ausserdem den USB-TX-Pool. Ein kleines lwIP-TCP-Fenster ist deshalb
+# eine plausible, aber NOCH NICHT bewiesene Ursache. Der 32-KiB-Build ist der
+# kontrollierte A/B-Test.
+#
+# Wichtig: txmaxinflight zaehlt USB-Bulk-OUT-Transfers, NICHT TCP-Segmente bzw.
+# unbestaetigte TCP-Pakete. Aus txmaxinflight=2 allein darf kein cwnd/SND-WND
+# abgeleitet werden.
+# ============================================================================
+
+# --- A/B-Test: TCP-Sende-/Empfangsfenster vergroessern ----------------------
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=32768
+CONFIG_LWIP_TCP_WND_DEFAULT=32768
+
+# Espressif empfiehlt fuer die TCP-Socket-Receive-Mailbox grob WND/MSS + 2.
+# Bei MSS ~1436 sind 25 Eintraege ausreichend fuer ein 32-KiB-Fenster.
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=25
+
+# XIAO ESP32-S3: 8 MB Flash. Der IDF-Default ist sonst 2 MB und widerspricht
+# der lokalen default_8MB.csv mit zwei OTA-Slots.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+# Arduino als ESP-IDF-Komponente setzt 1000 Hz FreeRTOS-Tickrate voraus.
+CONFIG_FREERTOS_HZ=1000
+
+# Arduino setup()/loop() automatisch starten.
+CONFIG_AUTOSTART_ARDUINO=y
+CONFIG_ARDUINO_RUN_CORE1=y
+CONFIG_ARDUINO_LOOP_STACK_SIZE=12288
+
+# Die native USB-OTG-PHY bleibt fuer den EC200A-USB-Host frei. Insbesondere
+# CONFIG_ESP_CONSOLE_USB_CDC darf hier NICHT aktiviert werden: diese Konsole
+# benutzt den USB-OTG-Controller. Der S3 kann OTG und USB-Serial/JTAG an der
+# internen PHY nicht gleichzeitig betreiben.
+#
+# USB-Host-Support selbst ist eine SoC/IDF-Faehigkeit und wird vom Treiber per
+# usb_host_install() initialisiert; keine erfundenen/abgeleiteten Capability-
+# Kconfig-Symbole hier erzwingen.

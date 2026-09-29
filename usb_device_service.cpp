@@ -1,0 +1,305 @@
+// ============================================================================
+// usb_device_service.cpp -- USB-Device (UVC) -- Port-Auswahl je Board, Export je Geraet. Siehe Header.
+// ============================================================================
+#include "usb_device_service.h"
+#include "soc/soc_caps.h"
+// FEATURE-FLAG (Build-Zeit, Vorgabe AUS): Die vorkompilierte TinyUSB-Geraetebibliothek des Arduino-Cores
+// (libarduino_tinyusb.a) haelt ~48 KB STATISCHE Puffer im internen RAM (Audio 13 KB, NCM 19 KB, MSC 8 KB,
+// DFU 4 KB, CDC/HID/MIDI ...), sobald usbd.c gelinkt wird -- unabhaengig davon, ob das Feature zur Laufzeit
+// eingeschaltet ist (Hardware-Befund 2026-09-09: statischer RAM 75 -> 125 KB, Boot-Heap 84k -> 30k, Modem-Host
+// ohne DMA-RAM -> keine Enumeration). Ein Laufzeitschalter kann statische Puffer einer fertigen Bibliothek
+// nicht freigeben. Deshalb entscheidet ein Build-Flag, ob der Device-Stack ueberhaupt eingebunden wird:
+//   -DWEIRDOS_USB_DEVICE=1   (build_opt.h / platform.local.txt)  -> UVC verfuegbar, ~48 KB weniger interner Heap
+// Ohne das Flag bleibt der Code ein Stub (Status "im Build deaktiviert"); Konfiguration/UI bleiben erhalten.
+// Weg zu echtem Laufzeit-Einschalten: eigene, minimale TinyUSB-Uebersetzung (usbd + dcd_dwc2 + video, ~2 KB
+// statisch) statt der Core-Bibliothek -- siehe USB-DEVICE.md.
+#ifndef WEIRDOS_USB_DEVICE
+#define WEIRDOS_USB_DEVICE 0
+#endif
+#if SOC_USB_OTG_SUPPORTED && defined(CONFIG_TINYUSB_ENABLED) && WEIRDOS_USB_DEVICE
+#define WEIRDOS_USBDEV_SUPPORTED 1
+#else
+#define WEIRDOS_USBDEV_SUPPORTED 0
+#endif
+bool UsbDeviceService::builtIn() { return WEIRDOS_USBDEV_SUPPORTED != 0; }
+
+#include <Preferences.h>
+#include "web_ui.h"                 // logEvent, cameraReady
+#include "camera_stream_service.h"  // cameraStream (Consumer-API, MJPEG-Passthrough)
+#include "camera_manager.h"         // cameraManager.currentMode (Deskriptor-Groesse)
+#include "usb_uvc_testimage.h"
+#include "usb_ports.h"              // Board-Mapping: Port-ID -> Controller/PHY/rhport
+#include "peripheral_registry.h"    // periphModemPort (Konflikt: derselbe Port fuer Modem-Host und PC-Geraet)
+#include <cstring>
+
+#if WEIRDOS_USBDEV_SUPPORTED
+#include "tusb.h"
+#include "class/video/video_device.h"
+#include "esp_private/usb_phy.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <esp_heap_caps.h>
+#include <esp_mac.h>
+#include <esp_timer.h>
+#endif
+
+extern bool usbHostStarted;         // .ino: laeuft der Modem-USB-Host? (HS-Port belegt)
+
+UsbDeviceService usbDeviceService;
+
+// ---- Ports (aus dem Board-Mapping usb_ports.*) ------------------------------------------------------
+String UsbDeviceService::defaultPort() {
+    for (int i = 0; i < usbPortsCount(); i++) if (usbPortUsable(usbPort(i).id) && usbPort(i).id != periphModemPort) return usbPort(i).id;
+    for (int i = 0; i < usbPortsCount(); i++) if (usbPortUsable(usbPort(i).id)) return usbPort(i).id;
+    return "USB0";
+}
+bool   UsbDeviceService::portValid(const String& p) { return usbPortUsable(p); }
+String UsbDeviceService::portLabel(const String& p) { return usbPortDescribe(p); }
+bool   UsbDeviceService::conflictsWithModemPort() const { return enabled() && cfg_.port == periphModemPort; }
+
+// ---- Konfiguration --------------------------------------------------------------------------------
+void UsbDeviceService::loadConfig() {
+    Preferences p; p.begin("usbdev", true);
+    cfg_.port = p.getString("port", defaultPort());
+    cfg_.cam  = p.getString("cam", "");
+    cfg_.fps  = (uint8_t)p.getUChar("fps", 10);
+    // Migration der ersten Fassung (uvc/src): uvc=1 -> Export je nach Quelle
+    if (!p.isKey("cam") && p.getBool("uvc", false)) cfg_.cam = (p.getString("src", "camera") == "test") ? "testpattern0" : "camera0";
+    p.end();
+    if (!portValid(cfg_.port)) cfg_.port = defaultPort();
+    if (cfg_.cam != "camera0" && cfg_.cam != "testpattern0") cfg_.cam = "";
+    if (cfg_.fps < 1) cfg_.fps = 1;
+    if (cfg_.fps > 30) cfg_.fps = 30;
+}
+String UsbDeviceService::saveConfig(const UsbDeviceConfig& c) {
+    cfg_ = c;
+    if (!portValid(cfg_.port)) cfg_.port = defaultPort();
+    if (cfg_.cam != "camera0" && cfg_.cam != "testpattern0") cfg_.cam = "";
+    if (cfg_.fps < 1) cfg_.fps = 1;
+    if (cfg_.fps > 30) cfg_.fps = 30;
+    Preferences p; p.begin("usbdev", false);
+    p.putString("port", cfg_.port); p.putString("cam", cfg_.cam); p.putUChar("fps", cfg_.fps);
+    p.end();
+    return "";
+}
+
+#if WEIRDOS_USBDEV_SUPPORTED
+// ---- Deskriptor-Tabelle (Composite-vorbereitet: Interfaces/EPs/Strings fortlaufend) ---------------
+enum { ITF_VC = 0, ITF_VS = 1, ITF_COUNT = 2 };
+enum { STR_LANG = 0, STR_MANUF = 1, STR_PRODUCT = 2, STR_SERIAL = 3, STR_UVC = 4 };
+#define UVC_EP_IN     0x81
+#define UVC_EP_SIZE   CFG_TUD_VIDEO_STREAMING_EP_BUFSIZE   // Puffer der gelinkten Lib (P4: 512, S3: 64); FS-ISO max 1023
+#define UVC_CLOCK_HZ  48000000
+#define UVC_VID       0x1209        // pid.codes (Open-Source-VID)
+#define UVC_PID       0x0001        // pid.codes TEST-PID -- ausdruecklich fuer interne/Testgeraete freigegeben
+
+static usb_phy_handle_t s_phy = nullptr;
+static uint8_t   s_rhport = 0;
+static bool      s_highSpeed = false;
+static uint8_t*  s_cfgDesc = nullptr; static uint16_t s_cfgLen = 0;
+static tusb_desc_device_t s_devDesc;
+static tusb_desc_device_qualifier_t s_qualDesc;
+static char      s_serial[20] = "0";
+static uint16_t  s_strBuf[64];
+static uint16_t  s_w = UVC_TEST_JPEG_W, s_h = UVC_TEST_JPEG_H;
+static uint32_t  s_maxFrame = 0;
+
+// Laufzeit
+static volatile bool s_txBusy = false;
+static volatile bool s_streaming = false, s_mounted = false, s_suspended = false;
+static uint32_t  s_intervalMs = 100;
+static uint32_t  s_lastFrameUs = 0;
+static uint32_t  s_frames = 0, s_bytes = 0, s_lastLen = 0, s_maxLen = 0, s_skipsNoFrame = 0;
+static uint8_t*  s_buf = nullptr; static size_t s_cap = 0; static uint32_t s_seq = 0; static size_t s_len = 0;
+static bool      s_camConsumer = false;
+static bool      s_srcTest = true;
+
+static bool buildDescriptors(uint16_t w, uint16_t h, uint8_t fps) {
+    s_w = w; s_h = h;
+    s_maxFrame = (uint32_t)w * h * 2;            // MJPEG: grosszuegig, Windows reserviert diesen Puffer
+    if (s_maxFrame > 1024UL * 1024UL) s_maxFrame = 1024UL * 1024UL;
+    const uint32_t interval = 10000000UL / fps;  // 100-ns-Einheiten
+    const uint32_t minbr = (uint32_t)w * h * 16UL, maxbr = (uint32_t)w * h * 16UL * fps;
+    const uint8_t video[] = {
+        TUD_VIDEO_DESC_IAD(ITF_VC, ITF_COUNT, STR_UVC),
+        TUD_VIDEO_DESC_STD_VC(ITF_VC, 0, STR_UVC),
+        TUD_VIDEO_DESC_CS_VC(0x0150, TUD_VIDEO_DESC_CAMERA_TERM_LEN + TUD_VIDEO_DESC_OUTPUT_TERM_LEN, UVC_CLOCK_HZ, ITF_VS),
+        TUD_VIDEO_DESC_CAMERA_TERM(1, 0, 0, 0, 0, 0, 0),
+        TUD_VIDEO_DESC_OUTPUT_TERM(2, VIDEO_TT_STREAMING, 0, 1, 0),
+        TUD_VIDEO_DESC_STD_VS(ITF_VS, 0, 0, STR_UVC),
+        TUD_VIDEO_DESC_CS_VS_INPUT(1, TUD_VIDEO_DESC_CS_VS_FMT_MJPEG_LEN + TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT_LEN + TUD_VIDEO_DESC_CS_VS_COLOR_MATCHING_LEN,
+                                   UVC_EP_IN, 0, 2, 0, 0, 0, 0),
+        TUD_VIDEO_DESC_CS_VS_FMT_MJPEG(1, 1, 0, 1, 0, 0, 0, 0),
+        TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT(1, 0, w, h, minbr, maxbr, s_maxFrame, interval, interval, interval, interval),
+        TUD_VIDEO_DESC_CS_VS_COLOR_MATCHING(VIDEO_COLOR_PRIMARIES_BT709, VIDEO_COLOR_XFER_CH_BT709, VIDEO_COLOR_COEF_SMPTE170M),
+        TUD_VIDEO_DESC_STD_VS(ITF_VS, 1, 1, STR_UVC),
+        TUD_VIDEO_DESC_EP_ISO(UVC_EP_IN, UVC_EP_SIZE, 1)
+    };
+    const uint16_t total = TUD_CONFIG_DESC_LEN + sizeof(video);
+    // Extern versorgt -> SELF_POWERED, 100 mA (VBUS-Sense gibt es nicht -> siehe Header/USB-DEVICE.md)
+    const uint8_t head[] = { TUD_CONFIG_DESCRIPTOR(1, ITF_COUNT, 0, total, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100) };
+    uint8_t* d = (uint8_t*)malloc(total);
+    if (!d) return false;
+    if (s_cfgDesc) free(s_cfgDesc);
+    s_cfgDesc = d; s_cfgLen = total;
+    memcpy(s_cfgDesc, head, sizeof(head)); memcpy(s_cfgDesc + sizeof(head), video, sizeof(video));
+
+    memset(&s_devDesc, 0, sizeof(s_devDesc));
+    s_devDesc.bLength = sizeof(tusb_desc_device_t); s_devDesc.bDescriptorType = TUSB_DESC_DEVICE;
+    s_devDesc.bcdUSB = 0x0200;
+    s_devDesc.bDeviceClass = TUSB_CLASS_MISC; s_devDesc.bDeviceSubClass = MISC_SUBCLASS_COMMON; s_devDesc.bDeviceProtocol = MISC_PROTOCOL_IAD;
+    s_devDesc.bMaxPacketSize0 = 64;
+    s_devDesc.idVendor = UVC_VID; s_devDesc.idProduct = UVC_PID; s_devDesc.bcdDevice = 0x0100;
+    s_devDesc.iManufacturer = STR_MANUF; s_devDesc.iProduct = STR_PRODUCT; s_devDesc.iSerialNumber = STR_SERIAL;
+    s_devDesc.bNumConfigurations = 1;
+    // Device-Qualifier (nur HS-faehige Geraete werden danach gefragt; FS-Betrieb antwortet damit ebenfalls korrekt)
+    memset(&s_qualDesc, 0, sizeof(s_qualDesc));
+    s_qualDesc.bLength = sizeof(tusb_desc_device_qualifier_t); s_qualDesc.bDescriptorType = TUSB_DESC_DEVICE_QUALIFIER;
+    s_qualDesc.bcdUSB = 0x0200; s_qualDesc.bDeviceClass = TUSB_CLASS_MISC; s_qualDesc.bDeviceSubClass = MISC_SUBCLASS_COMMON;
+    s_qualDesc.bDeviceProtocol = MISC_PROTOCOL_IAD; s_qualDesc.bMaxPacketSize0 = 64; s_qualDesc.bNumConfigurations = 1;
+    uint8_t mac[6] = {0}; esp_read_mac(mac, ESP_MAC_BASE);
+    snprintf(s_serial, sizeof(s_serial), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return true;
+}
+
+// ---- TinyUSB-Deskriptor-Callbacks (ueberschreiben die __weak-Versionen des Arduino-Cores) ----------
+extern "C" uint8_t const* tud_descriptor_device_cb(void) { return (uint8_t const*)&s_devDesc; }
+extern "C" uint8_t const* tud_descriptor_configuration_cb(uint8_t index) { (void)index; return s_cfgDesc; }
+extern "C" uint8_t const* tud_descriptor_device_qualifier_cb(void) { return (uint8_t const*)&s_qualDesc; }
+extern "C" uint8_t const* tud_descriptor_other_speed_configuration_cb(uint8_t index) { (void)index; return s_cfgDesc; }   // gleiche Form in beiden Geschwindigkeiten
+extern "C" uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
+    (void)langid;
+    const char* s = nullptr;
+    switch (index) {
+        case STR_LANG:    s_strBuf[1] = 0x0409; s_strBuf[0] = (uint16_t)((TUSB_DESC_STRING << 8) | 4); return s_strBuf;
+        case STR_MANUF:   s = "WeirdOS"; break;
+        case STR_PRODUCT: s = "WeirdOS Camera"; break;
+        case STR_SERIAL:  s = s_serial; break;
+        case STR_UVC:     s = "WeirdOS Camera"; break;
+        default: return nullptr;
+    }
+    size_t n = strlen(s); if (n > 62) n = 62;
+    for (size_t i = 0; i < n; i++) s_strBuf[1 + i] = (uint8_t)s[i];
+    s_strBuf[0] = (uint16_t)((TUSB_DESC_STRING << 8) | (2 * n + 2));
+    return s_strBuf;
+}
+
+// ---- Video-Callbacks (tud_mount_cb & Co. bewusst NICHT: der Core definiert sie stark) --------------
+extern "C" int tud_video_commit_cb(uint_fast8_t ctl_idx, uint_fast8_t stm_idx, video_probe_and_commit_control_t const* parameters) {
+    (void)ctl_idx; (void)stm_idx;
+    uint32_t iv = parameters->dwFrameInterval; if (iv < 333333) iv = 333333; if (iv > 10000000) iv = 10000000;
+    s_intervalMs = iv / 10000;
+    return VIDEO_ERROR_NONE;
+}
+extern "C" int tud_video_power_mode_cb(uint_fast8_t ctl_idx, uint8_t power_mod) { (void)ctl_idx; (void)power_mod; return VIDEO_ERROR_NONE; }
+extern "C" void tud_video_frame_xfer_complete_cb(uint_fast8_t ctl_idx, uint_fast8_t stm_idx) { (void)ctl_idx; (void)stm_idx; s_txBusy = false; }
+
+// ---- Frame-Pumpe -----------------------------------------------------------------------------------
+static void pump() {
+    bool mounted = tud_mounted();
+    if (mounted != s_mounted) {
+        s_mounted = mounted;
+        if (mounted) logEvent(String("USB-Device: vom PC angesprochen (konfiguriert, ") + (tud_speed_get() == TUSB_SPEED_HIGH ? "High-Speed" : "Full-Speed") + ")");
+        else { s_streaming = false; s_txBusy = false; logEvent("USB-Device: vom PC getrennt"); if (s_camConsumer) { cameraStream.removeClient(); s_camConsumer = false; } }
+    }
+    s_suspended = tud_suspended();
+    bool streaming = mounted && tud_video_n_streaming(0, 0);
+    if (streaming != s_streaming) {
+        s_streaming = streaming;
+        if (streaming) { s_txBusy = false; s_lastFrameUs = 0; logEvent(String("UVC: Stream gestartet (") + s_w + "x" + s_h + ", Intervall " + s_intervalMs + " ms)"); }
+        else logEvent("UVC: Stream gestoppt");
+        if (!s_srcTest) {
+            if (streaming && !s_camConsumer) { s_seq = cameraStream.latestSequence(); cameraStream.addClient(); s_camConsumer = true; }
+            if (!streaming && s_camConsumer) { cameraStream.removeClient(); s_camConsumer = false; }
+        }
+    }
+    if (!streaming || s_txBusy) return;
+    uint32_t now = (uint32_t)esp_timer_get_time();
+    if (s_lastFrameUs && (now - s_lastFrameUs) < s_intervalMs * 1000UL) return;
+
+    const void* data = nullptr; size_t len = 0;
+    if (s_srcTest) { data = kUvcTestJpeg; len = UVC_TEST_JPEG_LEN; }
+    else {
+        size_t n = cameraStream.copyLatest(&s_buf, &s_cap, &s_seq);   // 0 = kein neuer Frame
+        if (n > 0) { s_len = n; }
+        else if (s_len == 0 || (now - s_lastFrameUs) < 500000UL) { s_skipsNoFrame++; return; }   // kurz warten, sonst letzten Frame wiederholen
+        data = s_buf; len = s_len;
+        if (len > s_maxFrame) { s_skipsNoFrame++; return; }   // groesser als dem Host angekuendigt -> nicht senden
+    }
+    if (!tud_video_n_frame_xfer(0, 0, (void*)data, len)) return;
+    s_txBusy = true; s_lastFrameUs = now;
+    s_frames++; s_bytes += (uint32_t)len; s_lastLen = (uint32_t)len; if (len > s_maxLen) s_maxLen = (uint32_t)len;
+}
+
+static void usbdevTask(void*) { usbDeviceService.taskLoop(); vTaskDelete(nullptr); }
+void UsbDeviceService::taskLoop() {
+    for (;;) {
+        tud_task_ext(2, false);   // Ereignisse verarbeiten, max. 2 ms blockieren
+        pump();
+    }
+}
+
+static void cleanupAfterFail(bool tusbInited) {
+    if (tusbInited) tusb_deinit(s_rhport);
+    if (s_phy) { usb_del_phy(s_phy); s_phy = nullptr; }
+    if (s_cfgDesc) { free(s_cfgDesc); s_cfgDesc = nullptr; s_cfgLen = 0; }
+}
+
+bool UsbDeviceService::begin() {
+    fail_ = "";
+    if (!enabled()) { Serial.println("USB-Device: kein Export konfiguriert (System > Geraete > Bereitstellen an USB)."); return false; }
+    s_srcTest = (cfg_.cam == "testpattern0");
+    uint16_t w = UVC_TEST_JPEG_W, h = UVC_TEST_JPEG_H;
+    if (!s_srcTest) {
+        if (!cameraReady) { fail_ = "camera0 nicht bereit"; Serial.println("USB-Device: camera0 nicht bereit -> nicht gestartet"); logEvent("UVC: " + fail_); return false; }
+        uint16_t cw = 0, ch = 0; cameraManager.currentMode(cw, ch);
+        if (cw && ch) { w = cw; h = ch; }
+    }
+    // Port -> Controller/PHY/rhport aus dem Board-Mapping
+    UsbDeviceHw hw = usbPortDeviceHw(cfg_.port);
+    if (!hw.ok) { fail_ = "Port " + cfg_.port + " ist im USB-Mapping nicht nutzbar (aus/ungueltige Pins)"; Serial.println("USB-Device: " + fail_); logEvent("UVC: " + fail_); return false; }
+    if (usbHostStarted && cfg_.port == periphModemPort) { fail_ = "Port " + cfg_.port + " ist vom Modem-Host belegt"; Serial.println("USB-Device: " + fail_); logEvent("UVC: " + fail_); return false; }
+    usb_phy_config_t pc = {};
+    pc.controller = USB_PHY_CTRL_OTG; pc.otg_mode = USB_OTG_MODE_DEVICE;
+    pc.target = hw.utmi ? USB_PHY_TARGET_UTMI : USB_PHY_TARGET_INT;
+    pc.otg_speed = hw.highSpeed ? USB_PHY_SPEED_HIGH : USB_PHY_SPEED_FULL;
+    s_rhport = hw.rhport; s_highSpeed = hw.highSpeed;
+    if (!buildDescriptors(w, h, cfg_.fps)) { fail_ = "kein Heap fuer Deskriptoren"; Serial.println("USB-Device: " + fail_); return false; }
+    esp_err_t e = usb_new_phy(&pc, &s_phy);
+    if (e != ESP_OK) { fail_ = String("PHY nicht initialisierbar: ") + esp_err_to_name(e); Serial.println("USB-Device: " + fail_); logEvent("UVC: " + fail_); cleanupAfterFail(false); return false; }
+    usbPortApplyPhySelect(cfg_.port);   // P4 + FS: FSLS-PHY 0 (24/25) oder 1 (26/27)
+    tusb_rhport_init_t ri = {}; ri.role = TUSB_ROLE_DEVICE; ri.speed = s_highSpeed ? TUSB_SPEED_HIGH : TUSB_SPEED_FULL;
+    if (!tusb_rhport_init(s_rhport, &ri)) { fail_ = String("TinyUSB rhport ") + s_rhport + " nicht initialisierbar"; Serial.println("USB-Device: " + fail_); logEvent("UVC: " + fail_); cleanupAfterFail(false); return false; }
+    if (xTaskCreatePinnedToCore(usbdevTask, "usbdev", 4096, nullptr, tskIDLE_PRIORITY + 5, nullptr, 0) != pdPASS) {
+        fail_ = "Worker-Task nicht anlegbar (interner Heap)"; Serial.println("USB-Device: " + fail_); logEvent("UVC: " + fail_); cleanupAfterFail(true); return false;
+    }
+    started_ = true;
+    Serial.printf("USB-Device bereit: 'WeirdOS Camera' <- %s, MJPEG %ux%u @%u fps, Port %s\n",
+                  cfg_.cam.c_str(), (unsigned)w, (unsigned)h, (unsigned)cfg_.fps, portLabel(cfg_.port).c_str());
+    return true;
+}
+
+String UsbDeviceService::statusText() {
+    String t = String("usbdev: Port ") + cfg_.port + " (" + portLabel(cfg_.port) + ")\r\n";
+    t += String("  Export: camera0=") + (cfg_.cam == "camera0" ? "UVC" : "aus") + "  testpattern0=" + (cfg_.cam == "testpattern0" ? "UVC" : "aus") + "  microphone0=UAC nicht implementiert  usb-network=NCM nicht implementiert  fps " + cfg_.fps + "\r\n";
+    t += String("  Stack: ") + (started_ ? "laeuft" : (fail_.length() ? ("NICHT gestartet: " + fail_) : "nicht gestartet")) + "\r\n";
+    if (started_) {
+        t += String("  Host: ") + (s_mounted ? "konfiguriert" : "nicht verbunden") + (s_suspended ? " (suspend)" : "") + "  Stream: " + (s_streaming ? "AN" : "aus") + "  Intervall " + s_intervalMs + " ms  " + (s_highSpeed ? "HS" : "FS") + " rhport " + s_rhport + "\r\n";
+        t += String("  Format: MJPEG ") + s_w + "x" + s_h + "  Frames " + s_frames + "  Bytes " + s_bytes + "  letzte/max JPEG " + s_lastLen + "/" + s_maxLen + " B  uebersprungen " + s_skipsNoFrame + "\r\n";
+    }
+    return t;
+}
+String UsbDeviceService::statusJson() {
+    return String("{\"port\":\"") + cfg_.port + "\",\"portLabel\":\"" + escapeJson(portLabel(cfg_.port)) + "\",\"cam\":\"" + cfg_.cam + "\",\"fps\":" + cfg_.fps +
+           ",\"active\":" + (started_ ? "true" : "false") + ",\"fail\":\"" + escapeJson(fail_) + "\"" +
+           ",\"mounted\":" + (s_mounted ? "true" : "false") + ",\"streaming\":" + (s_streaming ? "true" : "false") + ",\"intervalMs\":" + s_intervalMs +
+           ",\"highSpeed\":" + (s_highSpeed ? "true" : "false") + ",\"width\":" + s_w + ",\"height\":" + s_h + ",\"frames\":" + s_frames + ",\"bytes\":" + s_bytes +
+           ",\"lastLen\":" + s_lastLen + ",\"maxLen\":" + s_maxLen + ",\"skips\":" + s_skipsNoFrame + "}";
+}
+#else
+static const char* kNotBuilt = "im Build deaktiviert (Feature-Flag WEIRDOS_USB_DEVICE=1 setzen; TinyUSB kostet ~48 KB internen RAM)";
+bool   UsbDeviceService::begin() { if (enabled()) { fail_ = kNotBuilt; Serial.println(String("USB-Device: Export konfiguriert, aber ") + kNotBuilt); logEvent(String("USB-Device: ") + kNotBuilt); } return false; }
+void   UsbDeviceService::taskLoop() {}
+String UsbDeviceService::statusText() { return String("usbdev: Port ") + cfg_.port + ", Export " + (cfg_.cam.length() ? cfg_.cam : String("aus")) + " -- " + kNotBuilt + "\r\n"; }
+String UsbDeviceService::statusJson() { return String("{\"port\":\"") + cfg_.port + "\",\"cam\":\"" + cfg_.cam + "\",\"fps\":" + cfg_.fps + ",\"active\":false,\"builtIn\":false,\"fail\":\"" + kNotBuilt + "\"}"; }
+#endif
