@@ -71,3 +71,17 @@ PC angeschlossen wurde (z. B. Betrieb an Powerbank/Modem ohne PC).
 
 Board-Settings: [`BOARD_SETTINGS.md`](BOARD_SETTINGS.md). Historische
 Sketch-/Hardware-Doku (inkl. der alten Hack-Beschreibung): `README.sketch.md`.
+
+**Bausteine wählen.** Welche Module ins Image kommen, steuert der Schalterkasten
+`weirdos_features.h` (`-DWEIRDOS_FEATURE_<KEY>=0/1`, vom Cam-Tool gesetzt); der
+Schnitt, die Abhängigkeiten und die Profile stehen in [`MODULES.md`](MODULES.md)
+und maschinenlesbar in [`modules.json`](modules.json).
+
+**Gepatchte Core-Bibliotheken (optional).** Der unveränderte esp32-Core baut und
+linkt auf S3 **und** P4. Einige Bausteine entfalten ihren vollen Umfang erst mit
+einer eigens gebauten Core-Lib (PowerShell-Skripte, Windows, im Quell-Repo
+`quectel-ec200a-eu/tools/`): `build-camsensor.ps1` (P4: FHD-Sensormodi +
+Formatliste; ohne Patch greift der V4L2-Fallback), `build-lwip-zones.ps1`
+(Netzzonen-Hooks in lwIP; ohne Patch sind die Hooks inert),
+`build-tinyusb-slim.ps1` (schlankes TinyUSB für UVC), `build-aes-block.ps1`
+(HW-AES-Blockmodus für IPsec).

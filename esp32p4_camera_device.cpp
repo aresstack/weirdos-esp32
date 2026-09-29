@@ -49,6 +49,19 @@ static const int P4_JPEG_QUALITY = 45;
 // spezifische Layer -> Kopplung hier ok; generische Schichten (/dev, CameraDevice) bleiben sauber.
 extern "C" const esp_cam_sensor_format_t* weirdos_ov5647_formats(int* count);
 
+// WEAK-Rueckfall fuer den STOCK-Core: dort gibt es die injizierte ov5647.c.obj nicht, und der Link
+// scheiterte bisher an genau diesem Symbol. Mit der gepatchten Lib (tools/build-camsensor.ps1)
+// zieht der Linker das ov5647-Archiv-Member ohnehin (Treiber) -- dessen STARKE Definition gewinnt
+// dann gegen diesen weak-Stub. Ohne Patch liefert der Stub "keine Liste" und die Aufrufer nehmen
+// ihre dokumentierten Fallbacks (V4L2-Enum bzw. kein FHD-Sensorwechsel). So bleibt der P4 in der
+// CI mit dem unveraenderten Core baubar.
+extern "C" {
+__attribute__((weak)) const esp_cam_sensor_format_t* weirdos_ov5647_formats(int* count) {
+    if (count) *count = 0;
+    return nullptr;
+}
+}
+
 // Vollen Sensor-Descriptor (mit regs/isp_info/mipi) nach Breite/Hoehe finden; nullptr wenn keiner.
 static const esp_cam_sensor_format_t* p4FindSensorFormat(uint16_t w, uint16_t h) {
     int c = 0;
