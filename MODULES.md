@@ -153,19 +153,45 @@ ohne Implementierung (Vorgabe 0).
    ungegated — sie ist host-testbar (CI-Selftest) und wird nur von der gegateten
    Runtime referenziert.
 7. **UI-Seiten bleiben** und zeigen „nicht im Build enthalten" (Muster
-   `ui_bluetooth.cpp`): billig, und der Nutzer sieht, was ihm fehlt.
+   `ui_bluetooth.cpp`): billig, und der Nutzer sieht, was ihm fehlt. Ohne IDs, deren
+   Routen im Build fehlen — dann bindet auch das JS nichts an (`ui_zones`, `ui_netscan`,
+   `ui_internet` Mobilfunk, `ui_system` Zertifikat/Sicherung/Update, `ui_diag`).
 8. **CI beweist den Schnitt:** ein `lean`-Build mit den schweren Bausteinen auf 0
    muss linken. Fällt er, ist ein Stub unvollständig.
 
 ## 7. Reihenfolge
 
 1. ✅ Mechanismus + RTSP, ROUTER, WIREGUARD, IPSEC (+ BLE/USB_DEVICE übernommen).
-2. CAMERA, VIDEO_HTTP, H264, UVC — der Bildpfad (Naht `FrameSource`/`CameraDevice`).
-3. USB_HOST, MODEM — der Uplink.
-4. WIFI (mit STA/AP-Unterschaltern), NET als eigenständiges Fundament (die
-   Webcam ohne IP-Stack).
-5. HTTP, WEBUI, CONSOLE, OTA, BACKUP, TLS_*, ACME, DYNDNS, NETSCAN.
-6. USB_NCM implementieren (Tethering/Netzwerkadapter), dann die Zukunfts-Slots.
+2. ✅ CAMERA, VIDEO_HTTP, H264, UVC — der Bildpfad (Naht `FrameSource`/`CameraDevice`).
+3. ✅ USB_HOST, MODEM — der Uplink (`startUsbHost()` ist der Start des USB_HOST-Bausteins;
+   Systemuhr-Helfer und `ecmDefaultRouteIp()` bleiben in jedem Build).
+4. ✅ WIFI (P4-Pfad auf jedem SoC: `Network.h` statt `WiFi.h` für DynDNS/ACME/IPsec),
+   NET als eigenständiges Fundament (die Webcam ohne IP-Stack: kein tcpip-Unterbau,
+   kein `NetworkManager`).
+5. ✅ HTTP (kein `g_web`, kein `startWebServer()` → Server, Auth, Handler und Seiten
+   fallen per gc-sections), WEBUI (Seitengerüst, Menü, Renderer, App-Assets; PIN-Gate
+   und JSON-API bleiben), CONSOLE (Baudrate bleibt), OTA, BACKUP, TLS_SERVER (auch
+   HTTPS-Zweig in `weird_http_esp`/`camera_server`), TLS_CLIENT, ACME, DYNDNS
+   (Konfig-Globals und Egress-Helfer bleiben), NETSCAN, CRYPTO_AES.
+6. Offen: USB_NCM implementieren (Tethering/Netzwerkadapter), dann die Zukunfts-Slots
+   DETECTION/AUDIO/ACTUATOR. Jeder Baustein des Manifests ist damit **wired**; jeder
+   Schnitt hat einen eigenen CI-Job (§8).
+
+Was sich beim Verdrahten als Regel bewährt hat:
+
+- **Ein globaler Konstruktor hält eine ganze Bibliothek fest.** `WiFiClass WiFi`,
+  `NetworkManager Network`, `WeirdHttpEsp g_web` — jedes dieser Objekte zieht seine
+  Bibliothek samt IDF-Komponenten ins Bild, selbst wenn kein Code es benutzt. Deshalb
+  werden nicht nur Aufrufe, sondern die **Includes und Instanzen** gegated.
+- **Konfig bleibt, Verhalten geht.** Globals wie `dyndnsDomain`, Baudrate, Betriebsart-
+  Namen bleiben in jedem Build: andere Bausteine lesen sie (Zertifikat-CN, UART-Seite),
+  und ein späterer Build mit dem Baustein findet seine NVS-Werte wieder.
+- **Handler dürfen kompiliert bleiben.** Freie Funktionen der `.ino` ohne Referenz
+  wirft `--gc-sections` heraus; gegated werden die **Routen** (die Referenz), nicht
+  jeder Handler. Nur Blöcke mit eigenem Zustand (Tasks, RTC-Zähler, Observer) werden
+  ganz gegated.
+- **Pure Zuordnungen vor den Schalter** (`modeId()`, `systemClockIso()`,
+  `serialConsoleBaud()`): einmal definiert, kein Stub-Duplikat, das auseinanderläuft.
 
 ## 8. Messungen (CI, XIAO ESP32-S3, esp32-Core 3.3.11)
 
