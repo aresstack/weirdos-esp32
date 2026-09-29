@@ -204,12 +204,18 @@ void renderSystem(WeirdUiWriter& w) {
     // Horizontale Radios wie im Assistenten (radio-row/wiz-opt). Erste Ebene: eigenes vs. Let's
     // Encrypt; bei "eigenes" zweite Ebene: selbst erstellen vs. hochladen/eintragen. Das mappt
     // 1:1 auf CertSource {SelfSigned, Upload, Acme} im cert_store.
+#if WEIRDOS_FEATURE_TLS_SERVER
     {
-        const AcmeConfig& ac = acmeConfig();
         CertSource src = certSource();
+#if WEIRDOS_FEATURE_ACME
+        const AcmeConfig& ac = acmeConfig();
         bool own = (src != CertSource::Acme);
+#else
+        bool own = true;   // ohne Let's-Encrypt-Client gibt es nur "eigenes Zertifikat" (self-signed / Upload)
+#endif
         w.write(
             "<h2 class='section-title'>Zertifikat (HTTPS)</h2>"
+#if WEIRDOS_FEATURE_ACME
             "<div class='info' id='acme-status'>"
             "<div><span>Aktiv</span><span id='ac-active'>-</span></div>"
             "<div><span>Let's-Encrypt-Zertifikat</span><span id='ac-cert'>-</span></div>"
@@ -217,6 +223,7 @@ void renderSystem(WeirdUiWriter& w) {
             "<div><span>Port 80 (Challenge/Redirect)</span><span id='ac-port80'>-</span></div>"
             "<div><span>Letzter Lauf</span><span id='ac-last'>-</span></div>"
             "</div>"
+#endif
 
             "<p class='cam-hint'>Woher kommt das Zertifikat fuer die verschluesselte Weboberflaeche?</p>"
             "<div class='radio-row'>"
@@ -226,12 +233,14 @@ void renderSystem(WeirdUiWriter& w) {
         if (own) w.write(" checked");
         w.write(
             "><span>Eigenes Zertifikat</span></label>"
+#if WEIRDOS_FEATURE_ACME
             "<label class='wiz-opt' title='Let&#39;s Encrypt: oeffentlich gueltig, keine Browserwarnung, automatische Erneuerung. Braucht Internet + Domain + Port 80.'>"
             "<input type='radio' name='certsrc' value='acme'"
         );
         if (!own) w.write(" checked");
         w.write(
             "><span>Let's Encrypt (automatisch)</span></label>"
+#endif
             "</div>"
 
             // ===== Panel: Eigenes Zertifikat =====
@@ -283,6 +292,7 @@ void renderSystem(WeirdUiWriter& w) {
             "</div>"  // /cert-own
 
             // ===== Panel: Let's Encrypt =====
+#if WEIRDOS_FEATURE_ACME
             "<div id='cert-acme'>"
             "<form id='acme-form'>"
             "<label for='acme-domain'>Domain</label>"
@@ -324,6 +334,7 @@ void renderSystem(WeirdUiWriter& w) {
             "(Uebersicht &rarr; System), DynDNS aktuell. Erneuerung laeuft danach automatisch, solange Internet "
             "besteht (taegliche Pruefung, &lt; 30 Tage Restlaufzeit).</p>"
             "</div>"  // /cert-acme
+#endif // WEIRDOS_FEATURE_ACME (Let's-Encrypt-Panel)
 
             // ===== Uebernehmen (Herkunft aktiv schalten) =====
             "<button id='cert-apply' class='connect-button' type='button'>Auswahl uebernehmen</button>"
@@ -333,10 +344,25 @@ void renderSystem(WeirdUiWriter& w) {
             "</section>"
         );
     }
+#else
+    // HTTPS-Server nicht im Build (WEIRDOS_FEATURE_TLS_SERVER=0): kein Zertifikatsspeicher, keine
+    // Herkunftswahl -- der Abschnitt bleibt sichtbar und nennt den Grund (keine ac-*/cert-*-IDs, kein
+    // Poll; die Zertifikats-/ACME-Routen sind in der .ino ebenfalls abgeschaltet).
+    w.write(
+        "<h2 class='section-title'>Zertifikat (HTTPS)</h2>"
+        "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;border-radius:6px;margin:8px 0'>"
+        "<p><strong>Der HTTPS-Server ist in diesem Build nicht enthalten (WEIRDOS_FEATURE_TLS_SERVER=0).</strong> "
+        "Die Weboberflaeche laeuft ueber HTTP; der Baustein TLS_SERVER (HTTPS, self-signed-Zertifikat, eigenes "
+        "Zertifikat, Let's Encrypt) wurde beim Bauen abgewaehlt. Fuer verschluesselten Fernzugriff bleibt der "
+        "VPN-Tunnel (WireGuard/IPsec), sofern enthalten.</p></div>"
+        "</section>"
+    );
+#endif // WEIRDOS_FEATURE_TLS_SERVER
     // --- Sicherung (Werksreset) ---
     w.write(
         "<section id='tab-backup' class='tab-panel'>"
         "<h2 class='section-title'>Sicherung</h2>"
+#if WEIRDOS_FEATURE_BACKUP
         "<button id='cfg-export' class='cam-button' type='button'>Sicherung exportieren</button>"
         "<p class='cam-hint'>Vollstaendige Konfiguration (alle Bereiche, zentral aus dem NVS) als "
         "Datei <code>weirdos-backup.cfg</code> - <strong>OHNE</strong> Passwoerter/PIN/Keys (die nach "
@@ -349,6 +375,14 @@ void renderSystem(WeirdUiWriter& w) {
         "<p class='cam-hint'>Spielt die Werte zurueck in den Speicher und startet neu (noetig, damit "
         "alle Bereiche die Config frisch laden). Secrets bleiben leer -- danach neu setzen.</p>"
         "<p id='cfg-import-msg' class='scan-status'></p>"
+#else
+        // Sicherung nicht im Build (WEIRDOS_FEATURE_BACKUP=0): keine cfg-*-IDs (das Export/Import-JS
+        // bleibt inaktiv), /settings-export|import sind in der .ino ebenfalls abgeschaltet.
+        "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;border-radius:6px;margin:8px 0'>"
+        "<p><strong>Sicherung/Wiederherstellung ist in diesem Build nicht enthalten (WEIRDOS_FEATURE_BACKUP=0).</strong> "
+        "Der Baustein BACKUP (Export/Import aller Einstellungen aus dem NVS, auch ueber die Konsole mit "
+        "<code>backup</code>/<code>restore</code>) wurde beim Bauen abgewaehlt.</p></div>"
+#endif // WEIRDOS_FEATURE_BACKUP
         "<h2 class='section-title'>Werksreset</h2>"
         "<form method='POST' action='/forget' "
         "onsubmit=\"return confirm('Alles auf Werkseinstellungen "

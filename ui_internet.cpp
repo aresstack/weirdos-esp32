@@ -11,6 +11,7 @@
 #include "ipsec_crypto_caps.h"     // IKEv2-Richtlinie: Faehigkeitstabelle (ausgegraut = nicht implementiert)
 #include "network_mode.h"          // Forwarding/NAPT-Wahl (unter Firewall & NAT verortet)
 
+#if WEIRDOS_FEATURE_MODEM
 // Datenschicht (PPP<->ECM) + Frequenzen sind HARDWARE-Steuerung des Modems (nicht die
 // Einwahl) -> gehoeren auf die Modem-Seite. Datenschicht ist Body-only und Teil des Tabs
 // "Anschluss" (renderMfAnschluss), Frequenzen ein eigener Tab (psub-mf-band).
@@ -193,6 +194,7 @@ static void renderMfBand(WeirdUiWriter& w) {
         "<p id='scan-msg' class='scan-status'></p>"
         "</div>");
 }
+#endif // WEIRDOS_FEATURE_MODEM (Modem-Tabs)
 
 void renderInternet(WeirdUiWriter& w) {
     // Online-Monitor lebt jetzt in der Uebersicht (renderOverview); die om-* IDs
@@ -226,6 +228,9 @@ void renderInternet(WeirdUiWriter& w) {
         "pflegst du unter <strong>LAN &rarr; WLAN</strong> (Client-Modus einschalten). Die Modem-Einstellungen "
         "bleiben erhalten, das Modem dient dann als Rueckfall.</p>"
         "</div>"
+    );
+#if WEIRDOS_FEATURE_MODEM
+    w.write(
         "<div data-wanview='cellular'>"
         "<h2 class='section-title'>Mobilfunk (Modem)</h2>"
         "<div class='tabs'>"
@@ -411,8 +416,22 @@ void renderInternet(WeirdUiWriter& w) {
     renderMfBand(w);
     w.write(
         "</div>"       // /data-wanview=cellular
-        "</section>"   // /tab-mobilfunk
     );
+#else
+    // Mobilfunk nicht im Build (WEIRDOS_FEATURE_MODEM=0): der Block bleibt (das JS blendet ihn per
+    // data-wanview ein), nennt aber nur den Grund -- keine mf-*-IDs, keine Modem-Formulare, kein Poll
+    // der Modem-Routen (die sind in der .ino ebenfalls unter WEIRDOS_FEATURE_MODEM).
+    w.write(
+        "<div data-wanview='cellular'>"
+        "<h2 class='section-title'>Mobilfunk (Modem)</h2>"
+        "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;border-radius:6px;margin:8px 0'>"
+        "<p><strong>Mobilfunk ist in diesem Build nicht enthalten (WEIRDOS_FEATURE_MODEM=0).</strong> Der Baustein MODEM "
+        "(EC200A am USB-Host: Zugangsdaten, Datenschicht PPP/ECM, Frequenzen, SIM) wurde beim Bauen abgewaehlt. "
+        "Als Internetzugang bleibt der WLAN-Client (LAN &rarr; WLAN), sofern der Baustein WIFI enthalten ist.</p></div>"
+        "</div>"
+    );
+#endif // WEIRDOS_FEATURE_MODEM
+    w.write("</section>");   // /tab-mobilfunk
     // --- Firewall & NAT (frueher 'Freigaben'; DynDNS lebt jetzt unter Dienste) ---
     w.write(
         "<section id='tab-freigaben' class='tab-panel'>"
