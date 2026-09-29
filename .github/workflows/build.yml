@@ -46,18 +46,19 @@ jobs:
             flags: "-DWEIRDOS_FEATURE_CAMERA=0 -DWEIRDOS_FEATURE_VIDEO_HTTP=0 -DWEIRDOS_FEATURE_RTSP=0"
             optional: false
           # P4-Pico: 16 MB Flash + PSRAM. Mit dem generischen esp32p4-Default (4 MB, 1,25-MB-App)
-          # linkt der Vollausbau zwar, passt aber nicht in die App-Partition (3,0 MB gemessen).
-          # Groesste 16-MB-App-Partition des Cores: app3M_fat9M_16MB (3 MB App). Der Vollausbau
-          # MIT PSRAM (= IPsec + Zonen an) wird das sprengen -- genau das ist der Befund, den
-          # dieser Job misst (arduino-cli meldet die Groesse auch bei "Sketch too big").
+          # linkt der Vollausbau zwar, passt aber nicht in die App-Partition. Groesste
+          # 16-MB-App-Partition des Cores: app3M_fat9M_16MB (3 MB App). Gemessen (Stand 85d7fc9):
+          # Vollausbau MIT PSRAM (IPsec + Zonen an) 3 058 382 B = 97 % -- passt, aber ohne Luft;
+          # jede neue Zeile im Vollausbau kippt diesen Job. Das ist gewollt: der P4-Vollausbau
+          # ist die Obergrenze, die Profile sind der Normalfall. Beide Jobs sind blockierend.
           - name: P4 full (16 MB, PSRAM)
             fqbn: "esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=enabled"
             flags: ""
-            optional: true
+            optional: false
           - name: P4 lean (ohne IPsec/Zonen)
             fqbn: "esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=enabled"
             flags: "-DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_ROUTER=0"
-            optional: true
+            optional: false
     continue-on-error: ${{ matrix.optional }}
     steps:
       - uses: actions/checkout@v4

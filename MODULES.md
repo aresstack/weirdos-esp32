@@ -186,9 +186,18 @@ Variablen (`.data`+`.bss`), also das, was dem Heap fehlt, bevor irgendetwas läu
   für einen Encoder, den der S3 nicht hat, entfällt (Heap, nicht statisches RAM —
   deshalb nicht in der Tabelle).
 
-P4 (generisches `esp32p4`-Target, Stock-Core, ohne PSRAM → IPsec/Zonen aus):
-linkt, 3 001 800 B — passt nicht in die 1,25-MB-App des 4-MB-Defaults und nur
-knapp in die grösste 16-MB-App-Partition des Cores (3 MB). Der Vollausbau mit
-PSRAM (IPsec + Zonen) sprengt sie: **der P4 braucht für alles zugleich eine
-eigene Partitionstabelle, und selbst dann bleibt der Heap die Grenze** — genau
-der Grund für diesen Schnitt.
+### P4 (generisches `esp32p4`-Target, Stock-Core 3.3.11, 16 MB, `app3M_fat9M_16MB`, PSRAM)
+
+| Build | Schalter auf 0 | Flash (App-Partition 3 145 728 B) | statisches RAM |
+|---|---|---|---|
+| P4 full | — | 3 058 382 B (97 %) | 76 124 B |
+| P4 lean | IPSEC, ROUTER | 2 863 334 B (91 %) | 64 444 B |
+
+- Mit dem 4-MB-Default des Cores (1,25-MB-App) passt **kein** P4-Build; erst die
+  grösste 16-MB-App-Partition des Cores nimmt ihn — und der Vollausbau füllt sie
+  zu 97 %. Jede weitere Zeile im Vollausbau kippt den CI-Job `P4 full`; das ist
+  Absicht: der Vollausbau ist die Obergrenze, die Profile sind der Normalfall.
+- IPsec + Zonen weglassen: **−195 KB Flash, −11,7 KB statisches RAM**.
+- Der P4-Heap ist mit dieser Messung noch nicht erfasst (statisches RAM ≠ Heap;
+  H264-Encoder, PPA und Kamera-Puffer kommen zur Laufzeit dazu). Deshalb bleibt
+  der Schnitt entlang der Profile der Weg, nicht eine grössere Partition.
