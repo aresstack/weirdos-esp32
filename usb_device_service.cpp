@@ -388,7 +388,22 @@ static bool buildDescriptors(uint16_t w, uint16_t h, uint8_t fps) {
     s_devDesc.bcdUSB = 0x0200;
     s_devDesc.bDeviceClass = TUSB_CLASS_MISC; s_devDesc.bDeviceSubClass = MISC_SUBCLASS_COMMON; s_devDesc.bDeviceProtocol = MISC_PROTOCOL_IAD;
     s_devDesc.bMaxPacketSize0 = 64;
-    s_devDesc.idVendor = UVC_VID; s_devDesc.idProduct = UVC_PID; s_devDesc.bcdDevice = 0x0100;
+    // bcdDevice kodiert das Funktions-Layout (UVC/UAC/NCM). Windows nimmt bcdDevice
+    // als REV_xxxx in die Hardware-ID -> jede Gestalt ist ein EIGENES Geraet, obwohl
+    // VID/PID/Seriennummer gleich bleiben. Ohne das startet Windows den frisch
+    // gebundenen Treiber gegen den zwischengespeicherten Zustand der vorigen Gestalt
+    // (Kamera vs. NCM an MI_00) -> UsbNcm Code 10 / 0xC0000483 (Befund 2026-09-30).
+    uint16_t layout = 0x0100;
+#if WEIRDOS_FEATURE_UVC
+    layout |= 0x01;
+#endif
+#if WEIRDOS_UAC_SUPPORTED
+    if (s_audioOn) layout |= 0x02;
+#endif
+#if WEIRDOS_UNC_SUPPORTED
+    if (s_ncmInDesc) layout |= 0x04;
+#endif
+    s_devDesc.idVendor = UVC_VID; s_devDesc.idProduct = UVC_PID; s_devDesc.bcdDevice = layout;
     s_devDesc.iManufacturer = STR_MANUF; s_devDesc.iProduct = STR_PRODUCT; s_devDesc.iSerialNumber = STR_SERIAL;
     s_devDesc.bNumConfigurations = 1;
     // Device-Qualifier (nur HS-faehige Geraete werden danach gefragt; FS-Betrieb antwortet damit ebenfalls korrekt)
