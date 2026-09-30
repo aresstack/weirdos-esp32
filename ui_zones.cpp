@@ -35,6 +35,22 @@ void renderZones(WeirdUiWriter& w) {
         "AllowedIPs.</p>"
         "<div id='zo-conns'></div>"
         "<details class='wg-adv' id='zo-more'><summary>Weitere Verbindungen (Netze derzeit nicht aktiv)</summary><div id='zo-conns-more'></div></details>"
+        // Erweitert: WLAN-Gateway (default AUS). Heimnetz-Clients nutzen dieses Geraet als
+        // Naechsten-Hop in den IPsec-Tunnel -- OHNE WireGuard/USB. Zwei ehrliche Haken stehen
+        // direkt dabei: die esp-lwIP-NAPT-Grenze (dasselbe WLAN kann nicht NAT-Eingang UND
+        // -Ausgang sein -> schliesst USB-Internet-Tethering aus, der Haken schaltet dessen
+        // Regel mit um) und die Client-Route (im Heimnetz verteilt der fremde Router die
+        // Leases -- eine Route je Client bleibt Handarbeit; am USB macht das Option 121).
+        "<details class='wg-adv'><summary>Erweitert: WLAN-Gateway</summary>"
+        "<label class='check-row' style='margin:8px 0'><input type='checkbox' id='zo-wlangw'>"
+        "<span><b>Heimnetz-Clients d&uuml;rfen &uuml;ber dieses Ger&auml;t in den IPsec-Tunnel</b> "
+        "(<code>wlan-sta-lan &rarr; ipsec-client</code>).<br><small>Jeder Client braucht eine Route "
+        "auf die WLAN-IP dieses Ger&auml;ts (z.&nbsp;B. <code>route add 192.168.110.0 mask 255.255.255.0 "
+        "&lt;Ger&auml;te-IP&gt;</code>) &mdash; das Heimnetz-DHCP geh&ouml;rt dem Router, nicht uns. "
+        "Schaltet die USB-Internet-Regel (<code>usb-lan &rarr; wlan-sta-uplink</code>) ab, denn dasselbe "
+        "WLAN kann nicht zugleich NAT-Eingang und -Ausgang sein (esp-lwIP). Der USB-VPN-Weg "
+        "(<code>usb-lan &rarr; ipsec-client</code>) l&auml;uft weiter.</small></span></label>"
+        "</details>"
         "<p id='zo-msg' class='scan-status'></p>"
 
         "<h2 class='section-title'>Technische Details (automatisch)</h2>"
@@ -64,6 +80,7 @@ void renderZones(WeirdUiWriter& w) {
             "'<label class=\"check-row\" style=\"min-width:320px\"><input type=\"checkbox\" class=\"zo-sw\" data-src=\"'+esc(s.id)+'\" data-dst=\"'+esc(d.id)+'\"'+(on?' checked':'')+(noRt?' disabled':'')+'><span><b>'+esc(nm(s.id))+'</b> &rarr; <b>'+esc(nm(d.id))+'</b><br><small>'+esc(s.id)+' &rarr; '+esc(d.id)+'</small></span></label>'+"
             "'<div style=\"flex:1\">'+st+'</div></div>';}"
         "function render(){var nets=document.getElementById('zo-nets');if(nets){var h='';A.forEach(function(a){h+=rowNet(a,P);});nets.innerHTML=h||'<div><span>keine Netze</span><span></span></div>';}"
+          "var gw=document.getElementById('zo-wlangw');if(gw){var gp=pol('wlan-sta-lan','ipsec-client');gw.checked=!!(gp&&gp.intent!=='DENY');}"
           "var main='',more='';var srcs=A.filter(function(a){return a.kind!=='uplink';});"
           "srcs.forEach(function(s){A.forEach(function(d){if(d.id===s.id)return;if(d.kind==='uplink')return;"   // Internet-Ziele: Phase 2 (NetworkMode-Migration)
             "var p=pol(s.id,d.id);var rt=(s.runtimeSupported!==false&&d.runtimeSupported!==false);var live=rt&&(s.up||d.up||(p&&p.intent!=='DENY'));if(live){main+=card(s,d);}else{more+=card(s,d);}});});"
@@ -79,6 +96,15 @@ void renderZones(WeirdUiWriter& w) {
             "x+='<div><span>Verworfen (Policy)</span><span>'+(hk.dropPolicy||0)+'</span></div>';t.innerHTML=x;}}"
         "function load(){fetch('/net-interfaces.json?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){A=d.attachments||[];P=d.prefixes||[];"
           "return fetch('/zones.json?t='+Date.now(),{cache:'no-store'});}).then(function(r){return r.json();}).then(function(z){Z=z||{};render();}).catch(function(){});}"
+        // WLAN-Gateway-Haken: zwei Policies in EINEM Zug (Gateway an -> USB-Internet aus und
+        // umgekehrt); der zweite POST laeuft nach dem ersten, dann neu laden (Planner-Ergebnis).
+        "document.addEventListener('change',function(e){var t=e.target;if(!t||t.id!=='zo-wlangw')return;"
+          "var on=t.checked;var msg=document.getElementById('zo-msg');if(msg)msg.textContent='speichere ...';"
+          "function setp(s,d,i){return fetch('/zones-policy',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'src='+encodeURIComponent(s)+'&dst='+encodeURIComponent(d)+'&intent='+i}).then(function(r){return r.json();});}"
+          "setp('wlan-sta-lan','ipsec-client',on?'allow':'deny')"
+          ".then(function(){return setp('usb-lan','wlan-sta-uplink',on?'deny':'allow');})"
+          ".then(function(d){if(msg)msg.textContent=d.ok?(on?'WLAN-Gateway an (USB-Internet aus)':'WLAN-Gateway aus (USB-Internet wieder an)'):('Fehler: '+d.msg);load();})"
+          ".catch(function(){if(msg)msg.textContent='Fehler';load();});});"
         "document.addEventListener('change',function(e){var t=e.target;if(!t||!t.classList||!t.classList.contains('zo-sw'))return;"
           "var msg=document.getElementById('zo-msg');if(msg)msg.textContent='speichere ...';"
           "fetch('/zones-policy',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/x-www-form-urlencoded'},"

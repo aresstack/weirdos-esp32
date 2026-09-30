@@ -2306,7 +2306,16 @@ void loadCameraConfig() {
     }
     streamPort = preferences.getInt("strmport", 81);
     streamPath = preferences.getString("strmpath", "/stream");
+    // Build-bewusster Default: Im RTSP-only-Build (VIDEO_HTTP=0, z. B. alle
+    // surveillance-Profile) MUSS die Kamera ohne jede Konfiguration streamen --
+    // Default "rtsp" statt eines toten "http" (das nur "nicht im Build" meldete
+    // und Port 554 zu liess; Befund 2026-10-01). RTSP lauscht auf INADDR_ANY,
+    // also WLAN/Modem/USB UND IPsec-Tunnel gleichzeitig. Gespeicherte Wahl gewinnt.
+#if WEIRDOS_FEATURE_RTSP && !WEIRDOS_FEATURE_VIDEO_HTTP
+    streamType = preferences.getString("strmtype", "rtsp");
+#else
     streamType = preferences.getString("strmtype", "http");
+#endif
     if (streamType != "rtsp" && streamType != "off") streamType = "http";
     if (streamType == "http" && !streamEnabled) streamType = "off";   // Legacy: HTTP-Stream war abgeschaltet
     rtspEnabled = preferences.getBool("rtspen", false);
