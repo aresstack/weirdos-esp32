@@ -100,7 +100,7 @@
 #define WEIRDOS_FEATURE_MODEM       WEIRDOS_SOC_USB_OTG    // EC200A ueber USB-Host (PPP/ECM)
 #endif
 #ifndef WEIRDOS_FEATURE_USB_NCM
-#define WEIRDOS_FEATURE_USB_NCM     0                      // ESP als USB-Netzwerkadapter (GEPLANT, noch nicht implementiert)
+#define WEIRDOS_FEATURE_USB_NCM     0                      // ESP als USB-Netzwerkadapter (CDC-NCM: usb_net_service + NCM-Composite)
 #endif
 #ifndef WEIRDOS_FEATURE_ROUTER
 #define WEIRDOS_FEATURE_ROUTER      WEIRDOS_SOC_PSRAM      // Netzzonen: Forwarding/NAT/Policies (PSRAM-Pflicht)

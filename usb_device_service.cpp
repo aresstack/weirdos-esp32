@@ -49,12 +49,25 @@ bool UsbDeviceService::builtIn() { return WEIRDOS_USBDEV_SUPPORTED != 0; }
 #define WEIRDOS_UAC_SUPPORTED 0
 #endif
 
+// USB-Netzwerkadapter (CDC-NCM) als weitere Funktion im selben Composite-Geraet.
+// Nur mit dem Baustein USB_NCM; sonst kein Byte davon. net-Klasse aktiv im Core
+// (CONFIG_TINYUSB_NCM_ENABLED), Netif/DHCP in usb_net_service.
+#if WEIRDOS_USBDEV_SUPPORTED && WEIRDOS_FEATURE_USB_NCM
+#define WEIRDOS_UNC_SUPPORTED 1
+#else
+#define WEIRDOS_UNC_SUPPORTED 0
+#endif
+
 #if WEIRDOS_USBDEV_SUPPORTED
 #include "tusb.h"
 #include "class/video/video_device.h"
 #if WEIRDOS_UAC_SUPPORTED
 #include "class/audio/audio_device.h"
 #include "mic_capture.h"
+#endif
+#if WEIRDOS_UNC_SUPPORTED
+#include "class/net/net_device.h"
+#include "usb_net_service.h"
 #endif
 #include "esp_private/usb_phy.h"
 #include "freertos/FreeRTOS.h"
@@ -131,6 +144,18 @@ enum { STR_LANG = 0, STR_MANUF = 1, STR_PRODUCT = 2, STR_SERIAL = 3, STR_UVC = 4
 #define UAC_EP_MPS    64                 // 16 kHz mono 16-bit = 32 B/ms; 64 mit Reserve (async)
 static bool s_audioOn = false;           // Mikro erkannt und Deskriptor traegt die Audio-Funktion
 static volatile bool s_audioStreaming = false;
+#endif
+#if WEIRDOS_UNC_SUPPORTED
+// NCM-Funktion: IAD ueber comm+data-Interface (nach Video, ggf. nach Audio).
+// Notify-EP 0x83 (int IN), Daten-EP 0x84 (bulk IN) / 0x04 (bulk OUT).
+#define NCM_ITF_COMM  (ITF_COUNT + (WEIRDOS_UAC_SUPPORTED ? 2 : 0))
+#define NCM_EP_NOTIF  0x83
+#define NCM_EP_IN     0x84
+#define NCM_EP_OUT    0x04
+#define STR_NCM       6
+#define STR_NCM_MAC   7
+static bool s_ncmOn = false;             // USB-Netz aktiv und Deskriptor traegt die NCM-Funktion
+static char s_ncmMacStr[13] = "025745495245";  // iMACAddress: 12 Hex, Host-Seite
 #endif
 #define UVC_BULK_MPS_FS 64          // Bulk-Paket Full-Speed (USB 2.0, 5.8.3) -- S3, P4-FSLS
 #define UVC_BULK_MPS_HS 512         // Bulk-Paket High-Speed -- P4-UTMI
@@ -239,15 +264,32 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
     };
     const bool withAudio = s_audioOn;
     const uint16_t audioLen = withAudio ? (uint16_t)sizeof(audio) : 0;
-    const uint8_t  itfTotal = withAudio ? UAC_ITF_COUNT : ITF_COUNT;
+    const uint8_t  audioItf = withAudio ? 2 : 0;
 #else
     const uint16_t audioLen = 0;
-    const uint8_t  itfTotal = ITF_COUNT;
+    const uint8_t  audioItf = 0;
 #endif
 
+#if WEIRDOS_UNC_SUPPORTED
+    // NCM sitzt nach Video (+ ggf. Audio): Interface-Nummer LAUFZEITABHAENGIG,
+    // sonst klafft bei fehlendem Mikro eine Luecke in der Nummerierung.
+    const bool withNcm = s_ncmOn;
+    const uint8_t ncmComm = (uint8_t)(ITF_COUNT + audioItf);
+    const uint8_t ncm[] = {
+        TUD_CDC_NCM_DESCRIPTOR(ncmComm, STR_NCM, STR_NCM_MAC, NCM_EP_NOTIF, 64,
+                               NCM_EP_OUT, NCM_EP_IN, bulkMps, 1514, 16, 0)
+    };
+    const uint16_t ncmLen = withNcm ? (uint16_t)sizeof(ncm) : 0;
+    const uint8_t  ncmItf = withNcm ? 2 : 0;
+#else
+    const uint16_t ncmLen = 0;
+    const uint8_t  ncmItf = 0;
+#endif
+
+    const uint8_t  itfTotal = (uint8_t)(ITF_COUNT + audioItf + ncmItf);
     const uint16_t total = TUD_CONFIG_DESC_LEN + (uint16_t)sizeof(partA)
                          + (uint16_t)nFrames * TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT_LEN
-                         + (uint16_t)sizeof(partC) + audioLen;
+                         + (uint16_t)sizeof(partC) + audioLen + ncmLen;
     // Extern versorgt -> SELF_POWERED, 100 mA (VBUS-Sense gibt es nicht -> siehe Header/USB-DEVICE.md)
     const uint8_t head[] = { TUD_CONFIG_DESCRIPTOR(1, itfTotal, 0, total, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100) };
     uint8_t* d = (uint8_t*)malloc(total);
@@ -270,6 +312,9 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
     memcpy(p, partC, sizeof(partC)); p += sizeof(partC);
 #if WEIRDOS_UAC_SUPPORTED
     if (withAudio) { memcpy(p, audio, sizeof(audio)); p += sizeof(audio); }
+#endif
+#if WEIRDOS_UNC_SUPPORTED
+    if (withNcm) { memcpy(p, ncm, sizeof(ncm)); p += sizeof(ncm); }
 #endif
     return true;
 }
@@ -316,6 +361,10 @@ extern "C" uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t lang
         case STR_SERIAL:  s = s_serial; break;
         case STR_UVC:     s = "WeirdOS Camera"; break;
         case STR_UAC:     s = "WeirdOS Microphone"; break;
+#if WEIRDOS_UNC_SUPPORTED
+        case STR_NCM:     s = "WeirdOS USB Network"; break;
+        case STR_NCM_MAC: s = s_ncmMacStr; break;   // iMACAddress: 12 Hex, Host-Seite
+#endif
         default: return nullptr;
     }
     size_t n = strlen(s); if (n > 62) n = 62;
@@ -460,6 +509,9 @@ static void cleanupAfterFail(bool tusbInited) {
 #if WEIRDOS_UAC_SUPPORTED
     if (s_audioOn) { cam::mic::end(); s_audioOn = false; s_audioStreaming = false; }
 #endif
+#if WEIRDOS_UNC_SUPPORTED
+    if (s_ncmOn) { cam::usbnet::end(); s_ncmOn = false; }
+#endif
     if (tusbInited) tusb_deinit(s_rhport);
     if (s_phy) { usb_del_phy(s_phy); s_phy = nullptr; }
     if (s_cfgDesc) { free(s_cfgDesc); s_cfgDesc = nullptr; s_cfgLen = 0; }
@@ -513,6 +565,17 @@ bool UsbDeviceService::begin() {
     s_audioOn = cam::mic::begin(UAC_RATE, &micRate);
     if (s_audioOn) { Serial.printf("USB-Device: Mikrofon aktiv (%s)\n", cam::mic::backendName()); logEvent(String("UAC: Mikrofon aktiv (") + cam::mic::backendName() + ")"); }
     else { Serial.println("USB-Device: kein Mikrofon -> nur Video"); }
+#endif
+#if WEIRDOS_UNC_SUPPORTED
+    // USB-Netzadapter hochbringen (netif + DHCP). iMACAddress-String aus der
+    // Geraete-MAC ableiten (Host-Seite = device ^ 1 im letzten Byte).
+    {
+        uint8_t m[6]; memcpy(m, tud_network_mac_address, 6); m[5] ^= 0x01;
+        for (int i = 0; i < 6; i++) snprintf(s_ncmMacStr + i * 2, 3, "%02X", m[i]);
+    }
+    s_ncmOn = cam::usbnet::begin();
+    if (s_ncmOn) { Serial.printf("USB-Device: USB-Netz aktiv (%s)\n", cam::usbnet::deviceIpText()); logEvent(String("NCM: USB-Netz aktiv (") + cam::usbnet::deviceIpText() + ")"); }
+    else { Serial.println("USB-Device: USB-Netz nicht gestartet -> ohne NCM"); }
 #endif
     // Port -> Controller/PHY/rhport aus dem Board-Mapping
     UsbDeviceHw hw = usbPortDeviceHw(cfg_.port);
