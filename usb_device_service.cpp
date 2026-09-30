@@ -488,11 +488,17 @@ bool UsbDeviceService::begin() {
         w = cw; h = ch;
         // Waehlbare Aufloesungen fuer den Deskriptor (Host waehlt per bFrameIndex).
         // enumModes liefert nur, was setMode() annimmt (am PSRAM-Maximum gedeckelt).
+        // Frame-Index 1 ist die UVC-VORGABE: Apps ohne Auswaehler (Windows-Kamera-
+        // App) zeigen genau diese. Also die aktuell konfigurierte Aufloesung (cw,ch)
+        // ZUERST -- sonst landet die App auf der kleinsten (640x480) und man kann sie
+        // dort mangels Auswahl nicht hochstellen.
         s_modeCount = 0;
+        s_modeW[s_modeCount] = w; s_modeH[s_modeCount] = h; s_modeCount++;   // Vorgabe = currentMode
         CameraVideoMode modes[UVC_MAX_MODES];
         const int nm = cameraManager.enumModes(modes, UVC_MAX_MODES);
         for (int i = 0; i < nm && s_modeCount < UVC_MAX_MODES; i++) {
             if (!modes[i].width || !modes[i].height) continue;
+            if (modes[i].width == w && modes[i].height == h) continue;   // Vorgabe steht schon vorn
             s_modeW[s_modeCount] = modes[i].width;
             s_modeH[s_modeCount] = modes[i].height;
             s_modeCount++;
