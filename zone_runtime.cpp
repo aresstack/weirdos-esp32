@@ -319,6 +319,12 @@ String zoneRuntimeDelPolicy(const String& src, const String& dst) {
     return "keine solche Policy";
 }
 int zoneRuntimeIntentCount() { return g_ready ? g_nIntents : 0; }
+bool zoneRuntimeIntentAllows(const String& src, const String& dst) {
+    if (!g_ready) return false;
+    for (int i = 0; i < g_nIntents; i++)
+        if (src == g_intents[i].src && dst == g_intents[i].dst) return g_intents[i].intent != ZI_DENY;
+    return false;
+}
 String zoneRuntimeDesiredCidrsFrom(const String& srcAttachment) {
     if (!g_ready) return "";
     String r;
@@ -430,6 +436,7 @@ bool   zoneRuntimePlanFor(const String& src, const String& dst, String& mode, St
 // Keine Zonen -> keine Ziel-Netze fuer WireGuard-AllowedIPs (Client-Konfig enthaelt nur Tunnel-IP + LAN-Gateway).
 String zoneRuntimeReachableCidrsFrom(const String& srcAttachment) { (void)srcAttachment; return ""; }
 String zoneRuntimeDesiredCidrsFrom(const String& srcAttachment)   { (void)srcAttachment; return ""; }
+bool   zoneRuntimeIntentAllows(const String& src, const String& dst) { (void)src; (void)dst; return false; }
 
 String zoneRuntimeText() { return "Netzzonen: nicht im Build enthalten (WEIRDOS_FEATURE_ROUTER=0)"; }
 String zoneRuntimeJson() { return String("{\"builtIn\":false,\"error\":\"") + kZoneNotBuilt + "\",\"policyMode\":false,\"policies\":[]}"; }

@@ -32,6 +32,9 @@ int    zoneRuntimeIntentCount();
 
 // Diagnose (D1): effektiver Plan der Policy src -> dst, falls ein Intent existiert (mode/reason/natSource).
 bool   zoneRuntimePlanFor(const String& src, const String& dst, String& mode, String& reason, String& natSource);
+// Existiert ein nicht-DENY-Intent src -> dst? UNABHAENGIG vom kompilierten Plan -- fuer fruehe
+// Abfragen direkt nach dem Boot (Mini-DHCP Option 121), bevor der erste Apply gelaufen ist.
+bool   zoneRuntimeIntentAllows(const String& src, const String& dst);
 // WireGuard-Client-Konfig: die Ziel-Prefixe (CSV "a.b.c.d/n, ...") aller Policies mit dieser Quelle,
 // die effektiv ROUTE oder NAT sind -- genau die Netze, die der Client in AllowedIPs (den Tunnel) routen
 // muss. Leer wenn keine. Kein Duplikat.

@@ -1,4 +1,5 @@
 #include "usb_net_service.h"
+#include "zone_runtime.h"   // Opt-121-Routen aus den usb-lan-Zonen-Policies (Stub bei ROUTER=0)
 
 #include "weirdos_features.h"
 #include "soc/soc_caps.h"
@@ -131,7 +132,7 @@ err_t linkOutput(struct netif* nif, struct pbuf* p) {
 // (kein Unicast-/Static-ARP-Trick wie im IDF-Server noetig). Alles laeuft im
 // tcpip-Thread (udp_recv-Callback) ueber die reine lwIP-API.
 void dhcpMiniReply(const uint8_t* req, uint8_t msgType) {
-    uint8_t r[300];
+    uint8_t r[360];
     memset(r, 0, sizeof(r));
     r[0] = 2; r[1] = 1; r[2] = 6;                        // BOOTREPLY, Ethernet, hlen 6
     memcpy(&r[4], &req[4], 4);                           // xid spiegeln
@@ -157,6 +158,48 @@ void dhcpMiniReply(const uint8_t* req, uint8_t msgType) {
     // sein Port-53-Dienst ist der Captive-Portal-Dummy des Setup-AP (4.3.2.1).
     const uint8_t dns[8] = { 1, 1, 1, 1,  8, 8, 8, 8 };
     put(6, dns, 8);
+#if WEIRDOS_FEATURE_ROUTER
+    // Option 121 (RFC 3442, classless static routes): die Ziel-Netze der aktiven
+    // usb-lan-Zonen-Policies wandern automatisch in die Lease -- der PC lernt die
+    // VPN-/Tunnel-Routen beim Anstecken, ganz ohne Windows-Handarbeit (dasselbe
+    // Prinzip wie die AllowedIPs-Injektion in WireGuard-Client-Configs). Ist AUCH
+    // eine Internet-Policy (Uplink) aktiv, kommt 0.0.0.0/0 mit hinein; RFC-gemaess
+    // ignorieren Clients Option 3, sobald 121 vorhanden ist. Ohne Zonen-Ziele
+    // KEINE Option 121 -> Verhalten exakt wie bisher (nur Option 3).
+    {
+        uint8_t rt[48]; uint8_t rl = 0;
+        // DESIRED (persistent, aus NVS) statt Reachable: die Lease kommt SEKUNDEN nach dem
+        // Boot, der Tunnel steht erst spaeter -- Reachable waere dann leer (Henne-Ei) und
+        // Windows erneuert die Lease erst nach Stunden. Desired existiert genau dafuer
+        // (dasselbe Muster wie die WireGuard-AllowedIPs).
+        const String cs = zoneRuntimeDesiredCidrsFrom("usb-lan");   // "a.b.c.d/n, ..."
+        int pos = 0;
+        while (pos < (int)cs.length() && rl <= (uint8_t)(sizeof(rt) - 9)) {
+            const int c = cs.indexOf(',', pos);
+            String one = (c < 0) ? cs.substring(pos) : cs.substring(pos, c);
+            pos = (c < 0) ? (int)cs.length() : c + 1;
+            one.trim();
+            const int sl = one.indexOf('/'); if (sl <= 0) continue;
+            IPAddress net; if (!net.fromString(one.substring(0, sl))) continue;
+            const int pfx = one.substring(sl + 1).toInt(); if (pfx < 0 || pfx > 32) continue;
+            rt[rl++] = (uint8_t)pfx;
+            for (int o = 0; o < (pfx + 7) / 8; o++) rt[rl++] = net[o];
+            memcpy(&rt[rl], srv, 4); rl = (uint8_t)(rl + 4);
+        }
+        // Intent-basiert (nicht Plan-basiert): beim fruehen DHCP ist noch nichts kompiliert.
+        const bool uplinkOn = zoneRuntimeIntentAllows("usb-lan", "wlan-sta-uplink")
+                           || zoneRuntimeIntentAllows("usb-lan", "modem-uplink");
+        if (rl > 0 && uplinkOn && rl <= (uint8_t)(sizeof(rt) - 5)) {
+            rt[rl++] = 0;                                   // 0.0.0.0/0 -> Internet weiter ueber den ESP
+            memcpy(&rt[rl], srv, 4); rl = (uint8_t)(rl + 4);
+        }
+        if (rl > 0) {
+            put(121, rt, rl);
+            static int s_rtLog = 0;
+            if (s_rtLog < 2) { s_rtLog++; logEvent(String("NCM: DHCP-Routen (Opt 121) ") + rl + " B"); }
+        }
+    }
+#endif
     r[i++] = 255;
     struct pbuf* p = pbuf_alloc(PBUF_TRANSPORT, sizeof(r), PBUF_RAM);
     if (!p) { logEvent("NCM: DHCP-Antwort ohne pbuf"); return; }
