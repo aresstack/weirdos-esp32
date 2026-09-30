@@ -287,8 +287,19 @@ bool UsbDeviceService::begin() {
     uint16_t w = UVC_TEST_JPEG_W, h = UVC_TEST_JPEG_H;
     if (!s_srcTest) {
         if (!cameraReady) { fail_ = "camera0 nicht bereit"; Serial.println("USB-Device: camera0 nicht bereit -> nicht gestartet"); logEvent("UVC: " + fail_); return false; }
-        uint16_t cw = 0, ch = 0; cameraManager.currentMode(cw, ch);
-        if (cw && ch) { w = cw; h = ch; }
+        // KEIN stiller Rueckfall auf die Testbild-Masse: der Deskriptor ist ein
+        // Vertrag mit dem Host. Stimmt er nicht mit den JPEGs ueberein, dekodiert
+        // Windows in den falschen Puffer (Magenta/Gruen-Salat, Befund 2026-09-30
+        // -- Sensor lief per NVS auf UXGA, Deskriptor sagte 640x480). Lieber laut
+        // scheitern als falsch ansagen.
+        uint16_t cw = 0, ch = 0;
+        if (!cameraManager.currentMode(cw, ch) || !cw || !ch) {
+            fail_ = "camera0-Aufloesung nicht lesbar (currentMode)";
+            Serial.println("USB-Device: " + fail_ + " -> nicht gestartet");
+            logEvent("UVC: " + fail_);
+            return false;
+        }
+        w = cw; h = ch;
     }
     // Port -> Controller/PHY/rhport aus dem Board-Mapping
     UsbDeviceHw hw = usbPortDeviceHw(cfg_.port);

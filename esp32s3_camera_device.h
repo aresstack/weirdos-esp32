@@ -48,6 +48,13 @@ public:
     // Aufloesung setzen: w×h intern auf framesize_t abbilden -> set_framesize (bis Maximum).
     bool setMode(uint16_t width, uint16_t height) override;
 
+    // Die LIVE-Sensoraufloesung (sensor->status.framesize). Fehlte bis 2026-09-30:
+    // die Basisklasse lieferte false, der UVC-Deskriptor fiel still auf die
+    // Testbild-Masse zurueck und meldete dem Host 640x480, waehrend der Sensor
+    // (per NVS-Startwert) UXGA schickte -> Windows dekodierte in den falschen
+    // Puffer, wildes Magenta/Gruen je nach Bildinhalt.
+    bool currentMode(uint16_t& width, uint16_t& height) const override;
+
     // OV3660-Sensortunables (Helligkeit/Kontrast/Saettigung/AEC/AGC/AWB/Spiegeln...).
     int  paramCount() const override;
     bool paramAt(int index, CameraParamInfo& out) const override;

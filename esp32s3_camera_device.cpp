@@ -335,6 +335,21 @@ bool Esp32S3DvpCamera::setMode(uint16_t width, uint16_t height) {
     return false;   // keine passende esp_camera-Aufloesung
 }
 
+// LIVE-Sensoraufloesung fuer alle, die dem Host eine feste Groesse ansagen
+// muessen (UVC-Deskriptor): aus sensor->status.framesize ueber die
+// resolution-Tabelle. NICHT config_.frameSize -- der Startwert kann per
+// setMode()/NVS laengst ueberholt sein.
+bool Esp32S3DvpCamera::currentMode(uint16_t& width, uint16_t& height) const {
+    if (!ready_) return false;
+    sensor_t* s = esp_camera_sensor_get();
+    if (!s) return false;
+    const int fs = (int)s->status.framesize;
+    if (fs < 0 || fs >= (int)FRAMESIZE_INVALID) return false;
+    width  = (uint16_t)resolution[fs].width;
+    height = (uint16_t)resolution[fs].height;
+    return true;
+}
+
 int Esp32S3DvpCamera::paramCount() const {
     return ready_ ? DVP_PARAM_COUNT : 0;
 }
