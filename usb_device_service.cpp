@@ -128,7 +128,8 @@ String UsbDeviceService::saveConfig(const UsbDeviceConfig& c) {
 #if WEIRDOS_USBDEV_SUPPORTED
 // ---- Deskriptor-Tabelle (Composite-vorbereitet: Interfaces/EPs/Strings fortlaufend) ---------------
 enum { ITF_VC = 0, ITF_VS = 1, ITF_COUNT = 2 };
-enum { STR_LANG = 0, STR_MANUF = 1, STR_PRODUCT = 2, STR_SERIAL = 3, STR_UVC = 4, STR_UAC = 5 };
+enum { STR_LANG = 0, STR_MANUF = 1, STR_PRODUCT = 2, STR_SERIAL = 3, STR_UVC = 4, STR_UAC = 5,
+       STR_CDC = 8 };   // 6/7 = NCM (STR_NCM/STR_NCM_MAC, nur mit USB_NCM)
 #define UVC_EP_IN     0x81
 #if WEIRDOS_UAC_SUPPORTED
 // Audio-Funktion: eigene IAD ueber die Interfaces 2 (AudioControl) und 3
@@ -270,14 +271,37 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
     const uint8_t  audioItf = 0;
 #endif
 
+    // CDC-Konsole = LEBENSADER, immer dabei: die USBCDC-Callbacks des Cores
+    // (USBCDC.cpp, via CDCOnBoot=cdc fest gelinkt) tragen den Bootloader-Einstieg
+    // -- 1200-Baud-Touch und die esptool-DTR/RTS-Sequenz -> usb_persist_restart
+    // (RESTART_BOOTLOADER). Ohne diese Schnittstelle ist ein OTG-Build nur noch
+    // mit BOOT+RESET an den Tasten flashbar. Bonus: Serial-Log am PC.
+    //
+    // IN-Endpunkte sind knapp (DWC2: 1..5). Vergabe LAUFZEITABHAENGIG in fester
+    // Prioritaet: Video 0x81, Audio 0x82 (wenn Mikro), dann CDC (Notify+Daten),
+    // dann NCM (Notify+Daten) NUR wenn noch zwei frei sind -- sonst faellt NCM
+    // fuer diesen Lauf weg (Log), die Lebensader faellt nie.
+    uint8_t nextIn = (audioItf != 0) ? 3 : 2;   // nach 0x81 (+0x82 bei Audio)
+    const uint8_t cdcNotifEp = (uint8_t)(0x80 | nextIn++);
+    const uint8_t cdcDataNum = nextIn++;
+    const uint8_t cdcItf = (uint8_t)(ITF_COUNT + audioItf);
+    const uint8_t cdc[] = {
+        TUD_CDC_DESCRIPTOR(cdcItf, STR_CDC, cdcNotifEp, 16,
+                           cdcDataNum, (uint8_t)(0x80 | cdcDataNum), bulkMps)
+    };
+
 #if WEIRDOS_UNC_SUPPORTED
-    // NCM sitzt nach Video (+ ggf. Audio): Interface-Nummer LAUFZEITABHAENGIG,
-    // sonst klafft bei fehlendem Mikro eine Luecke in der Nummerierung.
-    const bool withNcm = s_ncmOn;
-    const uint8_t ncmComm = (uint8_t)(ITF_COUNT + audioItf);
+    bool withNcm = s_ncmOn;
+    if (withNcm && nextIn + 1 > 5) {
+        withNcm = false;
+        Serial.println("USB-Device: EP-Budget erschoepft (Video+Audio+Konsole) -> NCM fuer diesen Lauf aus");
+    }
+    const uint8_t ncmNotifEp = (uint8_t)(0x80 | nextIn);
+    const uint8_t ncmDataNum = (uint8_t)(nextIn + 1);
+    const uint8_t ncmComm = (uint8_t)(cdcItf + 2);
     const uint8_t ncm[] = {
-        TUD_CDC_NCM_DESCRIPTOR(ncmComm, STR_NCM, STR_NCM_MAC, NCM_EP_NOTIF, 64,
-                               NCM_EP_OUT, NCM_EP_IN, bulkMps, 1514, 16, 0)
+        TUD_CDC_NCM_DESCRIPTOR(ncmComm, STR_NCM, STR_NCM_MAC, ncmNotifEp, 64,
+                               ncmDataNum, (uint8_t)(0x80 | ncmDataNum), bulkMps, 1514, 16, 0)
     };
     const uint16_t ncmLen = withNcm ? (uint16_t)sizeof(ncm) : 0;
     const uint8_t  ncmItf = withNcm ? 2 : 0;
@@ -286,10 +310,10 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
     const uint8_t  ncmItf = 0;
 #endif
 
-    const uint8_t  itfTotal = (uint8_t)(ITF_COUNT + audioItf + ncmItf);
+    const uint8_t  itfTotal = (uint8_t)(ITF_COUNT + audioItf + 2 /*CDC*/ + ncmItf);
     const uint16_t total = TUD_CONFIG_DESC_LEN + (uint16_t)sizeof(partA)
                          + (uint16_t)nFrames * TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT_LEN
-                         + (uint16_t)sizeof(partC) + audioLen + ncmLen;
+                         + (uint16_t)sizeof(partC) + audioLen + (uint16_t)sizeof(cdc) + ncmLen;
     // Extern versorgt -> SELF_POWERED, 100 mA (VBUS-Sense gibt es nicht -> siehe Header/USB-DEVICE.md)
     const uint8_t head[] = { TUD_CONFIG_DESCRIPTOR(1, itfTotal, 0, total, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100) };
     uint8_t* d = (uint8_t*)malloc(total);
@@ -313,6 +337,7 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
 #if WEIRDOS_UAC_SUPPORTED
     if (withAudio) { memcpy(p, audio, sizeof(audio)); p += sizeof(audio); }
 #endif
+    memcpy(p, cdc, sizeof(cdc)); p += sizeof(cdc);   // Lebensader, immer
 #if WEIRDOS_UNC_SUPPORTED
     if (withNcm) { memcpy(p, ncm, sizeof(ncm)); p += sizeof(ncm); }
 #endif
@@ -361,6 +386,7 @@ extern "C" uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t lang
         case STR_SERIAL:  s = s_serial; break;
         case STR_UVC:     s = "WeirdOS Camera"; break;
         case STR_UAC:     s = "WeirdOS Microphone"; break;
+        case STR_CDC:     s = "WeirdOS Console"; break;
 #if WEIRDOS_UNC_SUPPORTED
         case STR_NCM:     s = "WeirdOS USB Network"; break;
         case STR_NCM_MAC: s = s_ncmMacStr; break;   // iMACAddress: 12 Hex, Host-Seite
