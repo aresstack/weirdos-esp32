@@ -121,6 +121,10 @@ String escapeJson(const String& value);
 #define UI_ICON_REFRESH "&#x21bb;"   // im Kreis drehender Pfeil
 #define UI_ICON_RESET   "&#x232b;"   // Loeschen/zuruecksetzen
 String uiTitleWithAction(const char* title, const char* id, const char* extraCls, const char* icon, const char* tooltip);
+// Einheitlicher Hinweis "Baustein nicht in diesem Build" (gelbe Box) -- EIN Muster fuer alle
+// Seiten statt schwarzer Platzhalter. was = Klartext-Subjekt ("Die Kamera"), makro =
+// "WEIRDOS_FEATURE_CAMERA=0", weiter = was trotzdem funktioniert ("" = Satz entfaellt).
+String uiBausteinFehlt(const char* was, const char* makro, const char* weiter);
 
 // ---- Menueaufbau (web_ui_menu.cpp) + Content je Oberpunkt (ui_*.cpp) ------
 // Alle Renderer schreiben ueber den neutralen WeirdUiWriter (kein globaler server).

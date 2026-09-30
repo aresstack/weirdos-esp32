@@ -136,7 +136,12 @@ void dhcpMiniReply(const uint8_t* req, uint8_t msgType) {
     put(51, lease, 4);
     put(1, mask, 4);                                     // Subnetz
     put(3, srv, 4);                                      // Gateway = der ESP
-    put(6, srv, 4);                                      // DNS = der ESP
+    // DNS: oeffentliche Resolver statt des ESP -- die Anfragen laufen als normale
+    // UDP-Pakete durchs NAT (WLAN/LTE/VPN-Uplink gleichermassen, bei VPN durch den
+    // Tunnel). Der ESP betreibt fuer den USB-Client absichtlich KEINEN DNS-Proxy;
+    // sein Port-53-Dienst ist der Captive-Portal-Dummy des Setup-AP (4.3.2.1).
+    const uint8_t dns[8] = { 1, 1, 1, 1,  8, 8, 8, 8 };
+    put(6, dns, 8);
     r[i++] = 255;
     struct pbuf* p = pbuf_alloc(PBUF_TRANSPORT, sizeof(r), PBUF_RAM);
     if (!p) { logEvent("NCM: DHCP-Antwort ohne pbuf"); return; }
@@ -284,6 +289,7 @@ void end() {
 
 bool active() { return s_up; }
 const char* deviceIpText() { return s_ipText; }
+struct netif* nativeNetif() { return s_up ? &s_netif : nullptr; }
 
 // Im USB-Task (neben tud_task): so viele wartende Frames senden, wie die NCM-Klasse
 // annimmt. tud_network_can_xmit() holt sich dabei den naechsten NTB-Puffer -- deshalb

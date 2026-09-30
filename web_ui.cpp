@@ -383,6 +383,22 @@ String escapeHtml(const String& value) {
     return escaped;
 }
 
+// Einheitlicher "Baustein fehlt"-Hinweis (siehe web_ui.h): dieselbe gelbe Box auf jeder Seite,
+// deren Baustein nicht im Build ist -- statt schwarzer Player/leerer Tabellen ohne Erklaerung.
+String uiBausteinFehlt(const char* was, const char* makro, const char* weiter) {
+    String h;
+    h.reserve(260);
+    h += "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;"
+         "border-radius:6px;margin:8px 0'><p><strong>";
+    h += was;
+    h += " ist in diesem Build nicht enthalten (";
+    h += makro;
+    h += ").</strong>";
+    if (weiter && weiter[0]) { h += ' '; h += weiter; }
+    h += "</p></div>";
+    return h;
+}
+
 // Einheitliches Muster fuer "Titel + Aktions-Icon rechts" (siehe web_ui.h). Der Button hat eine
 // zusaetzlich mitgegebene id/Klasse, damit das bestehende JS (getElementById/querySelectorAll)
 // unveraendert bindet. CSS: .section-title.has-action / .icon-action in web_ui_assets.cpp.

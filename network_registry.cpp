@@ -19,6 +19,13 @@
 #include "ipsec_runtime.h"       // 8.2f: ipsec0 (IPsec-Tunnel als Schnittstelle) + tunnelNetInfo
 #include "wireguard_service.h"   // 7.5: wg0 (WireGuard-Tunnel als Schnittstelle)
 #include "network_platform.h"    // netIfaceSubnetCidr (Prefixlaenge des wg-netif)
+#include "soc/soc_caps.h"        // usb-ncm: nur wo der USB-Geraetestack existiert
+#if SOC_USB_OTG_SUPPORTED && defined(CONFIG_TINYUSB_ENABLED) && WEIRDOS_FEATURE_USB_DEVICE && WEIRDOS_FEATURE_USB_NCM
+#define WEIRDOS_REG_USBNET 1
+#include "usb_net_service.h"     // usb-ncm als LAN-Interface (USB-Tethering-Downstream)
+#else
+#define WEIRDOS_REG_USBNET 0
+#endif
 
 void netRegistryBuild(NetIface out[], int maxOut, int& count) {
     count = 0;
@@ -68,6 +75,16 @@ void netRegistryBuild(NetIface out[], int maxOut, int& count) {
         n.roles = NETROLE_LAN; n.label = "WLAN-AccessPoint"; n.device = "WiFi"; n.port = "";
     }
 #endif   // ohne WLAN-Baustein gibt es die Interfaces wifi-sta/wifi-ap nicht (netInterfaceById -> false; Egress/WAN-Policy fallen auf Mobilfunk)
+#if WEIRDOS_REG_USBNET
+    // USB-Netzwerkadapter (NCM): der PC am Kabel ist ein LAN hinter uns (192.168.7.0/24,
+    // wir sind Gateway .1) -- strukturell dasselbe wie der WLAN-AP, nur ueber USB.
+    if (count < maxOut) {
+        bool up = cam::usbnet::active();
+        NetIface& n = out[count++];
+        n.id = "usb-ncm"; n.kind = "usb"; n.up = up; n.ip = up ? String(cam::usbnet::deviceIpText()) : String("");
+        n.roles = NETROLE_LAN; n.label = "USB-Netzwerk (PC am Kabel)"; n.device = "TinyUSB-NCM"; n.port = "";
+    }
+#endif
 }
 
 bool netInterfaceById(const String& id, NetIface& out) {
@@ -206,6 +223,24 @@ void netAttachmentsBuild(NetAttachment out[], int maxOut, int& count) {
         a.up = ecm || ppp;
         if (a.up) { a.local = ecm ? ecmWanIp() : pppIpStr(); a.localPrefix = 32; a.addrSource = NADDR_PEER; a.mtu = (uint16_t)ipsecRuntime.uplinkMtu(); }
     }
+    // USB-Netzwerk (NCM): der PC am Kabel als eigenes LAN (wir sind Gateway 192.168.7.1).
+    // Muster wlan-ap: Absender beliebig, Rueckweg bekannt (der PC routet 192.168.7.0/24 zu uns).
+#if WEIRDOS_REG_USBNET
+    if (count < maxOut) {
+        NetAttachment& a = out[count++]; attInit(a, "usb-lan", "usb-ncm", NATT_LAN, "USB-Netzwerk (PC am Kabel)");
+        a.up = cam::usbnet::active();
+        if (a.up) { a.local = cam::usbnet::deviceIpText(); a.localPrefix = 24; a.addrSource = NADDR_CONFIG; a.mtu = 1500; }
+        a.acceptSrc = "any"; a.acceptSrcKnown = true; a.returnTo = "any"; a.returnToKnown = true;
+    }
+#else
+    // Baustein fehlt: sichtbar lassen statt Luecke (Muster wlan-* ohne WIFI) -- gespeicherte
+    // Intents auf usb-lan bleiben gueltig, der Planner meldet IMPOSSIBLE mit Grund.
+    if (count < maxOut) {
+        NetAttachment& a = out[count++]; attInit(a, "usb-lan", "usb-ncm", NATT_LAN, "USB-Netzwerk (PC am Kabel)");
+        a.configured = false; a.runtimeSupported = false;
+        a.stateNote = "USB-Netzwerkadapter nicht im Build enthalten (WEIRDOS_FEATURE_USB_NCM=0)";
+    }
+#endif
     // WireGuard: IMMER beide Rollen als getrennte Attachments. Das vendorte Backend ist heute eine
     // einzige Instanz (ein statisches WireGuard-Objekt, ein netif) -> es kann nur EINE Rolle gleichzeitig
     // laufen; die andere ist "configured=false / nicht up" mit Grund, verschwindet aber nicht.
@@ -276,6 +311,13 @@ bool netReachablePrefixOverflow() { return g_prefixOverflow; }
 void netReachablePrefixesBuild(ReachablePrefix out[], int maxOut, int& count) {
     g_prefixOverflow = false;
     count = 0;
+#if WEIRDOS_REG_USBNET
+    // USB-Netzwerk: das feste .7er-Netz als Onlink-Prefix -- OHNE diesen Eintrag kennt der
+    // Zonen-Planner kein Quellnetz fuer usb-lan und meldet IMPOSSIBLE ("kein Quellnetz").
+    if (cam::usbnet::active()) {
+        addPrefix(out, maxOut, count, "usb-lan", "192.168.7.0/24", NPFX_ONLINK);
+    }
+#endif
 #if WEIRDOS_FEATURE_WIFI
     if (WiFi.getMode() & WIFI_MODE_AP) {
         uint8_t p = maskToPrefix(WiFi.softAPSubnetMask());

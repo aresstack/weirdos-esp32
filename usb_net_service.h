@@ -15,6 +15,8 @@
 
 #include <stdint.h>
 
+struct netif;   // lwIP-Typ: global forward-deklariert (im Namespace entstuende ein NEUER Typ)
+
 namespace cam { namespace usbnet {
 
 // Bringt netif + DHCP-Server hoch (idempotent). Rueckgabe false, wenn kein
@@ -25,6 +27,10 @@ bool active();
 
 // Feste Geraeteadresse (der PC bekommt .2 per DHCP). Fuer Status/Anzeige.
 const char* deviceIpText();
+
+// Natives lwIP-Interface fuer Registry/Zonen (network_platform: "usb-ncm").
+// nullptr solange begin() nicht lief -- der Zonen-Planner zeigt dann "nicht aktiv".
+struct netif* nativeNetif();
 
 // Sendewarteschlange abarbeiten: lwIP legt ausgehende Frames im tcpip-Thread ab,
 // tud_network_xmit() laeuft NUR hier -- im USB-Task neben tud_task() (die NCM-Klasse

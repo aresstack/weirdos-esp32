@@ -15,6 +15,14 @@
 // Livebild-Block (Diagnose > Video). Bleibt hier, damit alles Video-Wissen (streamPort/-Path/-Key,
 // Stream-Modi, Codec-/Groessen-Dropdowns) in EINER Datei liegt; ui_diag.cpp setzt nur die Section.
 void renderVideoLive(WeirdUiWriter& w) {
+#if !WEIRDOS_FEATURE_CAMERA
+    // Einheitliches Muster (uiBausteinFehlt) statt schwarzem Player: ohne Kamera-Baustein
+    // gibt es keinen Stream und keine Einzelbilder -- ehrlich sagen, nicht schwarz bleiben.
+    w.write(uiBausteinFehlt("Die Kamera", "WEIRDOS_FEATURE_CAMERA=0",
+            "Livebild, Einzelbilder und die Stream-Einstellungen unter Server &rarr; Video "
+            "gehoeren zum Baustein CAMERA."));
+    return;
+#endif
     w.write(
         "<div id='live-wrap' class='live-wrap' title='Klick: Vollbild'>"
         "<img id='live' class='live-frame' alt='Livebild' data-streamport='"

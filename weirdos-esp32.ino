@@ -808,7 +808,11 @@ void setup() {
 #else
     Serial.println("Kamera: nicht im Build enthalten (WEIRDOS_FEATURE_CAMERA=0) -- Geraet laeuft ohne Bildpfad.");
 #endif
+    // Boot-Zeitleiste: Marken nur fuer Bausteine, die im Build SIND -- eine Phase "nach Kamera"
+    // in einem kameralosen Image fuehrt den Leser in die Irre (gleiches Muster bei allen Marken).
+#if WEIRDOS_FEATURE_CAMERA
     logHeapMark("nach Kamera");
+#endif
     // H.264-Guard FRUEH sichern (nach Kamera, VOR HTTP/USB/PPP) -> haelt einen zusammenhaengenden
     // internen Block, bevor ihn die spaeteren Subsysteme zerstueckeln. Default "Automatisch":
     // Groesse = Referenzpuffer des GROESSTEN vom Kamera-Backend gemeldeten Modus (+ Reserve) --
@@ -856,8 +860,8 @@ void setup() {
 #endif
 #if WEIRDOS_FEATURE_ROUTER
     zoneRuntimeBegin();               // Netzzonen 0.5: Tabellen im PSRAM, persistente Intents laden (Installation folgt im loop-Poll)
-#endif
     logHeapMark("nach Zonen-Runtime");   // muss praktisch identisch zur vorigen Marke sein (alles im PSRAM)
+#endif
     accessSetLanDetector(accessIsLanIp);   // Zugangsregel: LAN-Erkennung (AP/STA-Subnetz)
 #if WEIRDOS_FEATURE_IPSEC
     ipsecService.loadConfig();        // 8.1: IPsec-Config aus NVS (kein Autostart)
@@ -902,7 +906,9 @@ void setup() {
     usbHostStarted = modemUsbHostReady;   // bleibt false
     usbHostSkipReason = modemUsbError;
 #endif // WEIRDOS_FEATURE_MODEM
+#if WEIRDOS_FEATURE_USB_HOST
     logHeapMark("nach USB-Host");
+#endif
 
 #if WEIRDOS_FEATURE_WIFI
     WiFi.persistent(false);
@@ -952,15 +958,58 @@ void setup() {
         WiFi.setSleep(false);
 #endif
     }
+#if WEIRDOS_FEATURE_NET
     logHeapMark("nach WLAN/Netz-Aufbau");   // Split ggue. "nach Webserver": zeigt den WLAN-Anteil isoliert
+#endif
 
     // Webserver erst NACH dem Netzaufbau starten (bindet an lwIP -> laeuft auch ueber PPP/LTE).
     startWebServer();
+#if WEIRDOS_FEATURE_HTTP
     logHeapMark("nach Webserver");
+#endif
     // USB-Device zum PC (UVC): eigener Controller OTG1.1/FS auf GPIO24/25 -- unabhaengig vom Modem-Host
     // (OTG2.0/HS am MX1.25) und von der Konsole (CH343/UART0). Startet nur, wenn konfiguriert.
     usbDeviceService.begin();
+#if WEIRDOS_FEATURE_USB_DEVICE
     logHeapMark("nach USB-Device");
+#endif
+
+#if WEIRDOS_FEATURE_ROUTER && WEIRDOS_FEATURE_USB_NCM && WEIRDOS_FEATURE_USB_DEVICE
+    // USB-Tethering Plug&Play: Hat der Benutzer noch KEINE Zonen-Policy fuer das
+    // USB-LAN gesetzt, bekommt es einmalig ALLOW_AUTO auf den besten Uplink im Build
+    // (WLAN vor Mobilfunk; der Planner waehlt NAT). VPN-Ziele (wg-client/ipsec-client)
+    // bleiben bewusst Benutzerwahl ueber die Zonen-Oberflaeche -- vorhandene Intents
+    // werden NIE ueberschrieben.
+    {
+        String m, r, n;
+        const bool hasUsbIntent = zoneRuntimePlanFor("usb-lan", "wlan-sta-uplink", m, r, n)
+                               || zoneRuntimePlanFor("usb-lan", "modem-uplink",   m, r, n)
+                               || zoneRuntimePlanFor("usb-lan", "wg-client",      m, r, n)
+                               || zoneRuntimePlanFor("usb-lan", "ipsec-client",   m, r, n);
+        if (!hasUsbIntent) {
+#if WEIRDOS_FEATURE_WIFI
+            const char* dst = "wlan-sta-uplink";
+#else
+            const char* dst = "modem-uplink";
+#endif
+            const String err = zoneRuntimeSetPolicy("usb-lan", dst, "ALLOW_AUTO");
+            logEvent(err.length() ? (String("Zonen: USB-Tethering-Standard fehlgeschlagen: ") + err)
+                                  : (String("Zonen: Standard-Policy usb-lan > ") + dst + " (ALLOW_AUTO)"));
+        }
+        // Sichtbarkeit ohne Weboberflaeche: effektiver Plan der USB-Policies in den Ereignisring
+        // (WLAN verbindet asynchron -- "Ziel nicht aktiv" beim Boot ist normal, die Runtime
+        // kompiliert bei Zustandsaenderung neu; der Ring zeigt die Planner-Sicht von JETZT).
+        {
+            static const char* const kDst[] = { "wlan-sta-uplink", "modem-uplink", "wg-client", "ipsec-client" };
+            for (int di = 0; di < 4; di++) {
+                String m2, r2, n2;
+                if (zoneRuntimePlanFor("usb-lan", kDst[di], m2, r2, n2))
+                    logEvent(String("Zonen-Plan usb-lan > ") + kDst[di] + ": " + m2
+                             + (r2.length() ? String(" (") + r2 + ")" : String("")));
+            }
+        }
+    }
+#endif
 
     if (cameraReady) {
         startVideoTransport();   // HTTP-Stream-Server (Port 81) ODER RTSP (Port 554), je nach Server > Video
@@ -1011,6 +1060,30 @@ void startVideoTransport() {
 
 void loop() {
     serialConsoleTick();   // serielle Bedien-Konsole (Alternative zur Web-UI, v.a. P4)
+#if WEIRDOS_FEATURE_ROUTER && WEIRDOS_FEATURE_USB_NCM && WEIRDOS_FEATURE_USB_DEVICE
+    // USB-Tethering-Diagnose OHNE Weboberflaeche: 12 s nach dem Boot (WLAN steht dann,
+    // die First-N-Verkehrslogs sind gesaettigt -> der Ring bleibt lesbar) einmalig den
+    // effektiven Plan der USB-Policies in den Ereignisring schreiben.
+    {
+        static bool s_usbZoneDiag = false;
+        if (!s_usbZoneDiag && millis() > 12000) {
+            s_usbZoneDiag = true;
+            const bool applied = zoneRuntimeApply();
+            logEvent(String("Zonen: Apply ") + (applied ? "ok" : "verschoben"));
+            static const char* const kDst[] = { "wlan-sta-uplink", "modem-uplink", "wg-client", "ipsec-client" };
+            bool any = false;
+            for (int di = 0; di < 4; di++) {
+                String m2, r2, n2;
+                if (zoneRuntimePlanFor("usb-lan", kDst[di], m2, r2, n2)) {
+                    any = true;
+                    logEvent(String("Zonen-Plan usb-lan > ") + kDst[di] + ": " + m2
+                             + (r2.length() ? String(" (") + r2 + ")" : String("")));
+                }
+            }
+            if (!any) logEvent("Zonen-Plan: KEINE usb-lan-Policy vorhanden");
+        }
+    }
+#endif
     modemRateTick();       // 1s-Durchsatz-Sampler (Online-Monitor Max) -- laeuft im Hintergrund
 #if WEIRDOS_FEATURE_USB_HOST
     usbHostRecoveryTick(); // Modem nach CFUN=1,1 nicht wieder enumeriert -> ESP-Neustart statt Powercycle

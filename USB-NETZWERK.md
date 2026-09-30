@@ -229,8 +229,28 @@ wie WLAN": DHCP-Lifecycle, NAPT, DNS, Events, Default-Route).
    (`esp_netif_napt_enable` setzt dasselbe lwIP-NAPT, das der Zonen-Forwarder
    auf rohen netifs nutzt).
 
-**Tethering-Weg (offen, klein statt Umbau):** `usb-ncm` im bestehenden
-Registry registrieren (`usbNetNativeHandle()` + `resolveNetif`-Eintrag +
-`netRegistryBuild`) und ein Zonenpaar `usb-ncm → aktiver Uplink` mit NAPT
-definieren — dann läuft USB-Tethering durch dieselbe Policy-Maschine wie
-alle anderen Pfade, inklusive „alles durch VPN".
+**Tethering-Weg (UMGESETZT + hardware-bewiesen 2026-09-30):** `usb-ncm` ist im
+Registry-/Zonen-Kern registriert — vier Stellen plus zwei Stolpersteine:
+
+1. `cam::usbnet::nativeNetif()` (Accessor, usb_net_service).
+2. `network_platform::resolveNetif("usb-ncm")`.
+3. Registry: Interface `usb-ncm` (NETROLE_LAN) + Attachment `usb-lan`
+   (192.168.7.1/24, accept any / return any — Muster wlan-ap).
+4. **Onlink-Prefix nicht vergessen:** `netReachablePrefixesBuild` muss
+   `usb-lan → 192.168.7.0/24 (NPFX_ONLINK)` melden, sonst sagt der Planner
+   „IMPOSSIBLE (Quelle meldet kein Quellnetz)".
+5. Plug&Play: Beim Boot bekommt `usb-lan` einmalig `ALLOW_AUTO` auf den besten
+   Uplink im Build (WLAN vor Mobilfunk; Planner wählt NAT). Vorhandene
+   Benutzer-Policies werden nie überschrieben; VPN-Ziele (`wg-client`/
+   `ipsec-client`) wählt der Benutzer über die Zonen-Oberfläche.
+6. **DNS über DHCP-Option 6 = öffentliche Resolver (1.1.1.1, 8.8.8.8):** die
+   Anfragen laufen als normale UDP-Pakete durchs NAT (WLAN/LTE/VPN identisch).
+   Der Port-53-Dienst des ESP ist der Captive-Portal-Dummy des Setup-AP
+   (antwortet 4.3.2.1) — für den USB-Client bewusst KEIN DNS-Proxy.
+
+Diagnose ohne Weboberfläche: 12 s nach Boot loggt die Firmware den effektiven
+Plan in den Ereignisring (`Zonen-Plan usb-lan > …: NAT/…`).
+**Beweis:** PC → USB → ESP-NAT → WLAN → Internet, Ping 1.1.1.1 = 4/4, Ø 25 ms
+(NAT-Quelle = WLAN-IP). Profile: `usb-tether` (LTE→PC, P4), `usb-tether-wifi`
+(WLAN→PC, auch S3), `usb-tether-vpn` (VPN-Dongle), `surveillance-usb-lte/-wifi`
+(Kamera+IPsec+Tethering).

@@ -73,14 +73,15 @@ void renderDiag(WeirdUiWriter& w) {
     //     (JS-Hooks/Hash-Links), nur das Menue-Label heisst jetzt "Modem".
     w.write(
         "<section id='tab-diagusb' class='tab-panel'>"
+    );
 #if !WEIRDOS_FEATURE_MODEM
-        // Mobilfunk nicht im Build: die mj-*-Felder bleiben leer (/modem-json, /modem-info, /modem-at sind
-        // in der .ino unter WEIRDOS_FEATURE_MODEM); der USB-/IDF-Log (/modem-log) bleibt nutzbar.
-        "<div style='border-left:4px solid #e0a800;background:#fff8e6;padding:10px 12px;border-radius:6px;margin:8px 0'>"
-        "<p><strong>Mobilfunk ist in diesem Build nicht enthalten (WEIRDOS_FEATURE_MODEM=0).</strong> Funkwerte, "
-        "Netzliste, SIM und AT-Befehle gehoeren zum Baustein MODEM und bleiben hier leer; der USB-/System-Log "
-        "unten funktioniert weiterhin.</p></div>"
+    // Mobilfunk nicht im Build: die mj-*-Felder bleiben leer (/modem-json, /modem-info, /modem-at sind
+    // in der .ino unter WEIRDOS_FEATURE_MODEM); der USB-/IDF-Log (/modem-log) bleibt nutzbar.
+    w.write(uiBausteinFehlt("Mobilfunk", "WEIRDOS_FEATURE_MODEM=0",
+            "Funkwerte, Netzliste, SIM und AT-Befehle gehoeren zum Baustein MODEM und bleiben hier "
+            "leer; der USB-/System-Log unten funktioniert weiterhin."));
 #endif
+    w.write(
         "<h2 class='section-title'>Modem (Diagnose)</h2>"
         "<div class='tabs'>"
         "<button class='tab active' data-psub='dm-funk'>Mobilfunk</button>"

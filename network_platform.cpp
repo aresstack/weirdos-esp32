@@ -12,6 +12,13 @@
 #include "ec200a_modem.h"   // pppNetifHandle()
 #include "wireguard_service.h"   // Zonen 0.1: wg0 -> nativeNetif()
 #include "ipsec_runtime.h"       // Zonen 0.1: ipsec0 -> nativeNetif()
+#include "soc/soc_caps.h"        // usb-ncm nur, wo der USB-Geraetestack existiert
+#if SOC_USB_OTG_SUPPORTED && defined(CONFIG_TINYUSB_ENABLED) && WEIRDOS_FEATURE_USB_DEVICE && WEIRDOS_FEATURE_USB_NCM
+#define WEIRDOS_HAS_USBNET 1
+#include "usb_net_service.h"     // usb-ncm -> nativeNetif() (USB-Tethering-Downstream)
+#else
+#define WEIRDOS_HAS_USBNET 0
+#endif
 
 #include "esp_netif.h"
 #include "esp_netif_net_stack.h"
@@ -36,6 +43,10 @@ static struct netif* resolveNetif(const String& id) {
     // Zonen 0.1: Tunnel-Interfaces ueber ihre Dienste (kein Suchen nach dynamischen Namen).
     if (id == "wg0")    return (struct netif*)wireguardService.nativeNetif();
     if (id == "ipsec0") return (struct netif*)ipsecRuntime.nativeNetif();
+#if WEIRDOS_HAS_USBNET
+    // USB-Tethering-Downstream: der PC haengt als 192.168.7.0/24 hinter dem NCM-netif.
+    if (id == "usb-ncm") return cam::usbnet::nativeNetif();
+#endif
     return nullptr;
 }
 
