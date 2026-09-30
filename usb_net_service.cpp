@@ -21,6 +21,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
+// A/B-Schalter: 1 = IDF-dhcps statt Mini-Responder. Experiment zur Copy-TX-Umstellung --
+// mit Kopier-Eigentum in linkOutput laeuft der dhcps-Sende-Epilog wieder in der Umgebung,
+// fuer die er gebaut ist (pbuf endet im tcpip-Thread). Ueber Build-Flag setzbar.
+#ifndef WEIRDOS_USBNET_IDF_DHCPS
+#define WEIRDOS_USBNET_IDF_DHCPS 0
+#endif
+#if WEIRDOS_USBNET_IDF_DHCPS
+#include "dhcpserver/dhcpserver.h"
+#endif
+
 #include <Arduino.h>                  // String fuer die logEvent-Deklaration
 void logEvent(const String& text);    // App-Ereignis-Ringpuffer (Definition in der .ino)
 
@@ -50,27 +60,49 @@ constexpr uint32_t kMask = 0xFFFFFF00;  // 255.255.255.0
 
 struct netif s_netif;
 struct udp_pcb* s_dhcpPcb = nullptr;
+#if WEIRDOS_USBNET_IDF_DHCPS
+dhcps_t*     s_dhcps = nullptr;
+#endif
 bool         s_up = false;
 char         s_ipText[16] = "192.168.7.1";
-QueueHandle_t s_txq = nullptr;           // pbuf* vom tcpip-Thread an den USB-Task
-constexpr int kTxQueueDepth = 8;
 
-// Ausgehendes Ethernet-Frame -> Warteschlange. Laeuft im lwIP-tcpip-Thread. Die NCM-Klasse
-// (tud_network_can_xmit/xmit) ist nicht thread-sicher gegen tud_task(); deshalb wird hier
-// NUR eingereiht (pbuf_ref, Refcount ist unter SYS_LIGHTWEIGHT_PROT thread-sicher) und im
-// USB-Task gesendet (pump()). Voll oder USB nicht bereit -> verwerfen; TCP sendet erneut.
+// TX-Uebergabe mit KOPIER-Eigentum: linkOutput kopiert das Frame noch im tcpip-Thread
+// in einen eigenen Slot -- kein lwIP-pbuf verlaesst mehr den tcpip-Kontext. Damit
+// verhaelt sich dieses netif wie der WLAN-Treiber (synchrone Uebernahme), was u. a.
+// die Voraussetzung des IDF-dhcps ist (dessen Sende-Epilog lief sonst parallel zum
+// pbuf-Konsum auf dem anderen Kern). Pool + Index-Queues statt malloc pro Paket.
+struct TxFrame { uint16_t len; uint8_t data[1536]; };
+constexpr int kTxSlots = 8;
+TxFrame       s_txSlots[kTxSlots];
+QueueHandle_t s_txFree  = nullptr;       // freie Slot-Indizes (uint8_t)
+QueueHandle_t s_txReady = nullptr;       // gefuellte Slot-Indizes, Reihenfolge = Sendereihenfolge
+
+// Ausgehendes Ethernet-Frame: noch im lwIP-tcpip-Thread in einen Pool-Slot KOPIEREN und
+// nur den Slot-Index einreihen -- der pbuf ist mit der Rueckkehr fertig, lwIP behaelt die
+// volle Eigentuemerschaft (wie beim WLAN-Treiber). Gesendet wird im USB-Task (pump()),
+// weil die NCM-Klasse nicht thread-sicher gegen tud_task() ist. Pool leer oder USB nicht
+// bereit -> verwerfen; TCP sendet erneut.
 err_t linkOutput(struct netif* nif, struct pbuf* p) {
     (void)nif;
     g_ncmCrumb = 20;
-    if (!s_txq || !tud_ready()) {
+    if (!s_txReady || !tud_ready()) {
         static int s_txDropLog = 0;
         if (s_txDropLog < 4) { s_txDropLog++; logEvent("NCM: TX verworfen (USB nicht bereit)"); }
         return ERR_OK;
     }
+    if (p->tot_len == 0 || p->tot_len > sizeof(TxFrame::data)) return ERR_OK;   // uebergross: verwerfen
+    uint8_t idx;
+    if (xQueueReceive(s_txFree, &idx, 0) != pdTRUE) {
+        static int s_txPoolLog = 0;
+        if (s_txPoolLog < 4) { s_txPoolLog++; logEvent("NCM: TX verworfen (Pool voll)"); }
+        return ERR_OK;
+    }
+    TxFrame& f = s_txSlots[idx];
+    f.len = p->tot_len;
+    pbuf_copy_partial(p, f.data, f.len, 0);
     static int s_txQueuedLog = 0;
-    if (s_txQueuedLog < 8) { s_txQueuedLog++; logEvent(String("NCM: TX anstehend ") + p->tot_len + " B"); }
-    pbuf_ref(p);
-    if (xQueueSend(s_txq, &p, 0) != pdTRUE) { pbuf_free(p); }
+    if (s_txQueuedLog < 8) { s_txQueuedLog++; logEvent(String("NCM: TX anstehend ") + f.len + " B"); }
+    if (xQueueSend(s_txReady, &idx, 0) != pdTRUE) { xQueueSend(s_txFree, &idx, 0); }   // kann bei Tiefe==Slots nicht passieren
     g_ncmCrumb = 21;
     return ERR_OK;
 }
@@ -141,6 +173,15 @@ void dhcpMiniRecv(void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_addr_
     else if (type == 3) dhcpMiniReply(buf, 5);           // REQUEST  -> ACK
 }
 
+#if WEIRDOS_USBNET_IDF_DHCPS
+// Lease-Callback des IDF-dhcps (Pflicht, s. begin(): ohne Registrierung NULL-Call-PANIC).
+void dhcpsLeaseCb(void* cb_arg, u8_t client_ip[4], u8_t client_mac[6]) {
+    (void)cb_arg; (void)client_mac;
+    logEvent(String("NCM: IDF-dhcps Lease ") + client_ip[0] + "." + client_ip[1] + "."
+             + client_ip[2] + "." + client_ip[3]);
+}
+#endif
+
 err_t netifInit(struct netif* nif) {
     nif->name[0] = 'u'; nif->name[1] = 's';
     nif->mtu = 1500;
@@ -160,8 +201,14 @@ err_t netifInit(struct netif* nif) {
 
 bool begin() {
     if (s_up) return true;
-    if (!s_txq) s_txq = xQueueCreate(kTxQueueDepth, sizeof(struct pbuf*));
-    if (!s_txq) { ESP_LOGE(TAG, "Sendewarteschlange nicht anlegbar"); return false; }
+    if (!s_txFree)  s_txFree  = xQueueCreate(kTxSlots, sizeof(uint8_t));
+    if (!s_txReady) s_txReady = xQueueCreate(kTxSlots, sizeof(uint8_t));
+    if (!s_txFree || !s_txReady) { ESP_LOGE(TAG, "Sendewarteschlange nicht anlegbar"); return false; }
+    // Pool initialisieren: erst alles leeren (Wiederanlauf), dann alle Slots frei melden
+    uint8_t idx;
+    while (xQueueReceive(s_txReady, &idx, 0) == pdTRUE) {}
+    while (xQueueReceive(s_txFree,  &idx, 0) == pdTRUE) {}
+    for (uint8_t i = 0; i < kTxSlots; i++) xQueueSend(s_txFree, &i, 0);
 
     ip4_addr_t ip, mask, gw;
     ip4_addr_set_u32(&ip,   lwip_htonl(kIp));
@@ -175,15 +222,29 @@ bool begin() {
     if (added) {
         netif_set_up(&s_netif);
         netif_set_link_up(&s_netif);
+#if WEIRDOS_USBNET_IDF_DHCPS
+        // A/B-Experiment: der originale IDF-dhcps. GEFUNDENE PANIC-URSACHE (Kruemel 114):
+        // send_ack ruft nach erfolgreichem ACK dhcps->dhcps_cb() UNGEPRUEFT -- dhcps_new()
+        // liefert den Zeiger als NULL, die esp_netif-Glue des WLAN-AP registriert immer
+        // einen. Roher dhcps_start() ohne dhcps_set_new_lease_cb() springt also beim
+        // ersten vergebenen Lease ins Leere. Deshalb hier zwingend registrieren.
+        s_dhcps = dhcps_new();
+        if (s_dhcps) dhcps_set_new_lease_cb(s_dhcps, dhcpsLeaseCb, nullptr);
+        if (s_dhcps && dhcps_start(s_dhcps, &s_netif, ip) != ERR_OK) {
+            ESP_LOGW(TAG, "IDF-dhcps nicht gestartet -- PC braucht dann eine statische IP");
+            logEvent("NCM: IDF-dhcps START FEHLGESCHLAGEN");
+        } else if (s_dhcps) {
+            logEvent("NCM: IDF-dhcps aktiv (A/B-Experiment)");
+        }
+#else
         // Mini-DHCP: gibt dem PC die 192.168.7.2 (s. dhcpMiniRecv oben; der IDF-dhcps
-        // stuerzt auf diesem netif ab). IP_ANY + bind_netif: Broadcasts sicher empfangen,
-        // aber nur von diesem netif; SOF_BROADCAST erlaubt die Broadcast-Antwort.
+        // stuerzte mit dem alten Zero-Copy-TX auf diesem netif ab). IP-Bind wie beim
+        // IDF-dhcps: erst ans netif, dann an dessen konkrete IP -- ein ANY-Bind bekam
+        // die 0.0.0.0->255.255.255.255:67-Discover hier NICHT. SOF_BROADCAST erlaubt
+        // die Broadcast-Antwort.
         s_dhcpPcb = udp_new();
         if (s_dhcpPcb) {
             ip_set_option(s_dhcpPcb, SOF_BROADCAST);
-            // Exakt das Bind-Rezept des IDF-dhcps (der auf diesem Stack nachweislich
-            // empfing): erst ans netif binden, dann an dessen konkrete IP -- ein
-            // ANY-Bind bekam die 0.0.0.0->255.255.255.255:67-Discover hier NICHT.
             udp_bind_netif(s_dhcpPcb, &s_netif);
             const err_t be = udp_bind(s_dhcpPcb, &s_netif.ip_addr, 67);
             udp_recv(s_dhcpPcb, dhcpMiniRecv, nullptr);
@@ -191,6 +252,7 @@ bool begin() {
         } else {
             ESP_LOGW(TAG, "DHCP-PCB nicht anlegbar -- PC braucht dann eine statische IP");
         }
+#endif
     }
     UNLOCK_TCPIP_CORE();
     if (!added) {
@@ -207,14 +269,17 @@ bool begin() {
 void end() {
     if (!s_up) return;
     LOCK_TCPIP_CORE();
+#if WEIRDOS_USBNET_IDF_DHCPS
+    if (s_dhcps) { dhcps_stop(s_dhcps, &s_netif); dhcps_delete(s_dhcps); s_dhcps = nullptr; }
+#endif
     if (s_dhcpPcb) { udp_remove(s_dhcpPcb); s_dhcpPcb = nullptr; }
     netif_set_down(&s_netif);
     netif_remove(&s_netif);
     UNLOCK_TCPIP_CORE();
     s_up = false;
-    // Wartende Frames verwerfen
-    struct pbuf* p = nullptr;
-    while (s_txq && xQueueReceive(s_txq, &p, 0) == pdTRUE) pbuf_free(p);
+    // Wartende Slots zurueck in den Pool
+    uint8_t idx;
+    while (s_txReady && xQueueReceive(s_txReady, &idx, 0) == pdTRUE) xQueueSend(s_txFree, &idx, 0);
 }
 
 bool active() { return s_up; }
@@ -225,16 +290,19 @@ const char* deviceIpText() { return s_ipText; }
 // unmittelbar vor tud_network_xmit() aufrufen. Passt der Frame gerade nicht, bleibt er
 // vorn in der Schlange (naechster Umlauf, <= 2 ms spaeter).
 void pump() {
-    if (!s_txq || !s_up) return;
-    struct pbuf* p = nullptr;
+    if (!s_txReady || !s_up) return;
+    uint8_t idx = 0;
     bool blocked = false;
-    while (xQueuePeek(s_txq, &p, 0) == pdTRUE) {
+    while (xQueuePeek(s_txReady, &idx, 0) == pdTRUE) {
         g_ncmCrumb = 30;
-        if (!tud_ready()) { xQueueReceive(s_txq, &p, 0); pbuf_free(p); continue; }   // Host weg: verwerfen
-        if (!tud_network_can_xmit(p->tot_len)) { blocked = true; break; }
-        xQueueReceive(s_txq, &p, 0);
+        TxFrame& f = s_txSlots[idx];
+        if (!tud_ready()) {   // Host weg: verwerfen, Slot zurueck
+            xQueueReceive(s_txReady, &idx, 0); xQueueSend(s_txFree, &idx, 0); continue;
+        }
+        if (!tud_network_can_xmit(f.len)) { blocked = true; break; }
+        xQueueReceive(s_txReady, &idx, 0);
         g_ncmCrumb = 31;
-        tud_network_xmit(p, 0);   // kopiert ueber tud_network_xmit_cb und gibt den pbuf dort frei
+        tud_network_xmit(&f, idx);   // kopiert ueber tud_network_xmit_cb; der gibt den Slot frei
         g_ncmCrumb = 32;
         static int s_txSentLog = 0;
         if (s_txSentLog < 8) { s_txSentLog++; logEvent("NCM: TX gesendet"); }
@@ -295,11 +363,13 @@ extern "C" bool tud_network_recv_cb(const uint8_t* src, uint16_t size) {
 }
 
 extern "C" uint16_t tud_network_xmit_cb(uint8_t* dst, void* ref, uint16_t arg) {
-    (void)arg;
+    using namespace cam::usbnet;
     g_ncmCrumb = 40;
-    struct pbuf* p = static_cast<struct pbuf*>(ref);
-    const uint16_t len = pbuf_copy_partial(p, dst, p->tot_len, 0);
-    pbuf_free(p);   // die in linkOutput genommene Referenz
+    TxFrame* f = static_cast<TxFrame*>(ref);
+    const uint16_t len = f->len;
+    memcpy(dst, f->data, len);
+    uint8_t idx = (uint8_t)arg;
+    xQueueSend(s_txFree, &idx, 0);   // Slot zurueck in den Pool
     g_ncmCrumb = 41;
     return len;
 }
