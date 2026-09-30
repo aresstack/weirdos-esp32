@@ -296,7 +296,8 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
     // (RESTART_BOOTLOADER). Ohne diese Schnittstelle ist ein OTG-Build nur noch
     // mit BOOT+RESET an den Tasten flashbar. Bonus: Serial-Log am PC.
     //
-    // IN-Endpunkte sind knapp (DWC2: 1..5). Vergabe LAUFZEITABHAENGIG in fester
+    // IN-Endpunkte sind knapp: der S3 hat OTG_NUM_IN_EPS=5 -> nutzbar sind EP1..EP4
+    // (EP0 = Control). Vergabe LAUFZEITABHAENGIG in fester
     // Prioritaet: Video 0x81, Audio 0x82 (wenn Mikro), dann CDC (Notify+Daten),
     // dann NCM (Notify+Daten) NUR wenn noch zwei frei sind -- sonst faellt NCM
     // fuer diesen Lauf weg (Log), die Lebensader faellt nie.
@@ -312,9 +313,12 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
 
 #if WEIRDOS_UNC_SUPPORTED
     bool withNcm = s_ncmOn;
-    if (withNcm && nextIn + 1 > 5) {
+    // NCM braucht ZWEI IN-EPs (Notify nextIn, Daten nextIn+1); hoechster gueltiger
+    // IN-EP ist 4. Passt das nicht (z.B. Video+Audio+Konsole belegen schon EP1..4),
+    // faellt NCM fuer diesen Lauf weg -- die Lebensader bleibt.
+    if (withNcm && (nextIn + 1) > 4) {
         withNcm = false;
-        Serial.println("USB-Device: EP-Budget erschoepft (Video+Audio+Konsole) -> NCM fuer diesen Lauf aus");
+        Serial.println("USB-Device: IN-Endpunkte voll (Video+Audio+Konsole) -> NCM fuer diesen Lauf aus");
     }
     const uint8_t ncmNotifEp = (uint8_t)(0x80 | nextIn);
     const uint8_t ncmDataNum = (uint8_t)(nextIn + 1);
