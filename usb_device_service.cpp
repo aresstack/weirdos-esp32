@@ -421,11 +421,24 @@ extern "C" uint8_t const* tud_descriptor_device_cb(void) { return (uint8_t const
 // Konfiguration je ausgehandelter Geschwindigkeit: HS-Port am HS-Host -> Bulk 512, sonst Bulk 64. Die
 // "andere" Geschwindigkeit liefert das jeweils andere Exemplar (nur ein HS-Port hat zwei).
 static uint8_t const* cfgForSpeed(bool high) { return (high && s_cfgDescHs) ? s_cfgDescHs : s_cfgDesc; }
-extern "C" uint8_t const* tud_descriptor_configuration_cb(uint8_t index) { (void)index; return cfgForSpeed(tud_speed_get() == TUSB_SPEED_HIGH); }
+extern "C" uint8_t const* tud_descriptor_configuration_cb(uint8_t index) {
+    (void)index;
+    // Diagnose Windows-UsbNcm: liest der Host beim Treiberstart den Deskriptor neu oder
+    // arbeitet er rein aus dem Cache? (Throttle: Enumeration fragt mehrstufig.)
+    static uint32_t s_lastCfgLogMs = 0;
+    const uint32_t now = millis();
+    if (now - s_lastCfgLogMs > 2000) { s_lastCfgLogMs = now; logEvent("USB: Host liest Config-Deskriptor"); }
+    return cfgForSpeed(tud_speed_get() == TUSB_SPEED_HIGH);
+}
 extern "C" uint8_t const* tud_descriptor_device_qualifier_cb(void) { return (uint8_t const*)&s_qualDesc; }
 extern "C" uint8_t const* tud_descriptor_other_speed_configuration_cb(uint8_t index) { (void)index; return cfgForSpeed(tud_speed_get() != TUSB_SPEED_HIGH); }
 extern "C" uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     (void)langid;
+    // Diagnose Windows-UsbNcm: dessen erster Draht-Zugriff beim Start ist der String-Request
+    // auf iMACAddress. Bleibt er aus, scheitert der Treiber schon an der Deskriptor-Pruefung
+    // (Code 10 ohne ein einziges Paket). Indizes 0-3 (Sprache/Hersteller/Produkt/Seriennummer)
+    // fragt jede Enumeration -- nicht loggen, sonst flutet es den Ring.
+    if (index >= 4) logEvent(String("USB: Host fragt String ") + (int)index);
     const char* s = nullptr;
     switch (index) {
         case STR_LANG:    s_strBuf[1] = 0x0409; s_strBuf[0] = (uint16_t)((TUSB_DESC_STRING << 8) | 4); return s_strBuf;
@@ -436,7 +449,10 @@ extern "C" uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t lang
         case STR_UAC:     s = "WeirdOS Microphone"; break;
         case STR_CDC:     s = "WeirdOS Console"; break;
 #if WEIRDOS_UNC_SUPPORTED
-        case STR_NCM:     s = "WeirdOS USB Network"; break;
+        // Nur "USB Network": Windows' UsbNcm baut den Anzeigenamen selbst als
+        // "<Hersteller> <Funktionsname>" zusammen -- mit WeirdOS im String stuende
+        // dort "WeirdOS WeirdOS USB Network".
+        case STR_NCM:     s = "USB Network"; break;
         case STR_NCM_MAC: s = s_ncmMacStr; break;   // iMACAddress: 12 Hex, Host-Seite
 #endif
         default: return nullptr;
@@ -623,16 +639,27 @@ static void cdcDumpOnConnect() {
     wasConnected = connected;
 }
 
+#if WEIRDOS_UNC_SUPPORTED
+extern "C" { extern volatile uint32_t g_usbTaskCrumb; }   // USB-Task-Kruemelspur (usb_net_service.cpp)
+#endif
 void UsbDeviceService::taskLoop() {
     for (;;) {
+#if WEIRDOS_UNC_SUPPORTED
+        g_usbTaskCrumb = 80;
+#endif
         tud_task_ext(2, false);   // Ereignisse verarbeiten, max. 2 ms blockieren
+#if WEIRDOS_UNC_SUPPORTED
+        g_usbTaskCrumb = 81;
+#endif
         pump();
         cdcDumpOnConnect();
 #if WEIRDOS_UAC_SUPPORTED
         pumpAudio();
 #endif
 #if WEIRDOS_UNC_SUPPORTED
+        g_usbTaskCrumb = 82;
         cam::usbnet::pump();      // Ethernet-Frames aus lwIP an NCM -- im USB-Task, nicht im tcpip-Thread
+        g_usbTaskCrumb = 83;
 #endif
     }
 }

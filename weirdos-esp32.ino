@@ -774,7 +774,33 @@ void setup() {
     // LTE-RTT auf ~0,5 Mbit gedeckelt. Fix nur ueber IDF-Build (s. TCP-WINDOW-FIX.md).
     Serial.printf("[lwIP] TCP_MSS=%d TCP_SND_BUF=%d TCP_WND=%d\n",
                   (int)TCP_MSS, (int)TCP_SND_BUF, (int)TCP_WND);
-    logEvent("System gestartet");
+    {
+        // Reset-Grund ins Boot-Event: unterscheidet Crash-Reboots (PANIC/WDT) von
+        // normalen Neustarts -- am USB-Geraet die einzige Absturz-Sicht ohne UART0.
+        const esp_reset_reason_t rr = esp_reset_reason();
+        const char* rs = (rr == ESP_RST_PANIC)    ? "PANIC"
+                       : (rr == ESP_RST_INT_WDT)  ? "INT_WDT"
+                       : (rr == ESP_RST_TASK_WDT) ? "TASK_WDT"
+                       : (rr == ESP_RST_SW)       ? "SW"
+                       : (rr == ESP_RST_POWERON)  ? "POWERON"
+                       : (rr == ESP_RST_BROWNOUT) ? "BROWNOUT"
+                       : "SONST";
+        String bootMsg = String("System gestartet (Reset: ") + rs + ")";
+#if WEIRDOS_FEATURE_USB_NCM
+        // Kruemelspur des NCM-RX/TX-Pfads (RTC-RAM, usb_net_service.cpp): nach einem
+        // PANIC steht hier der letzte erreichte Schritt = die Absturzstelle.
+        {
+            extern volatile uint32_t g_ncmCrumb;
+            extern volatile uint32_t g_usbTaskCrumb;
+            if (rr == ESP_RST_PANIC || rr == ESP_RST_INT_WDT || rr == ESP_RST_TASK_WDT)
+                bootMsg += String(", NCM-Schritt ") + (unsigned long)g_ncmCrumb
+                         + ", USB-Task " + (unsigned long)g_usbTaskCrumb;
+            g_ncmCrumb = 0;
+            g_usbTaskCrumb = 0;
+        }
+#endif
+        logEvent(bootMsg);
+    }
 
     initializeStatusLed();
 #if WEIRDOS_FEATURE_CAMERA
