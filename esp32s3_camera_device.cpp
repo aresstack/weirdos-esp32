@@ -308,6 +308,11 @@ int Esp32S3DvpCamera::enumModes(CameraVideoMode* out, int maxOut) const {
     // Standard-Querformat-Framesizes VGA..QXGA (OV3660-Bereich); esp_camera-resolution-
     // Tabelle liefert die echten w×h. Dynamisch aus der Sensor-Lib, keine App-Tabelle.
     for (int fs = (int)FRAMESIZE_VGA; fs <= (int)FRAMESIZE_QXGA && n < maxOut; fs++) {
+        // Nur, was setMode() auch annimmt: das konfigurierte Maximum ist das
+        // PSRAM-Budget (Framebuffer sind dafuer dimensioniert). Mehr anzubieten
+        // hiesse, dem Aufrufer (UVC-Deskriptor, WebUI) Modi zu versprechen, die
+        // beim Umschalten abgelehnt werden.
+        if (config_.maxFrameSize && fs > (int)config_.maxFrameSize) break;
         uint16_t w = resolution[fs].width, h = resolution[fs].height;
         if (!w || !h || w < h) continue;   // nur Querformat
         out[n].width = w; out[n].height = h;

@@ -122,6 +122,21 @@ static uint16_t  s_strBuf[64];
 static uint16_t  s_w = UVC_TEST_JPEG_W, s_h = UVC_TEST_JPEG_H;
 static uint32_t  s_maxFrame = 0;
 
+// Aufloesungsliste im Deskriptor: UVC-Frame-Index i+1 <-> s_modeW/H[i]. Der Host
+// (Windows-Kamera-Einstellungen) waehlt darueber die Aufloesung; COMMIT schaltet
+// den Sensor um (tud_video_commit_cb). Leer (0) = genau ein Frame (Testbild oder
+// Kamera ohne Modusliste).
+enum { UVC_MAX_MODES = 8 };
+static uint16_t  s_modeW[UVC_MAX_MODES], s_modeH[UVC_MAX_MODES];
+static int       s_modeCount = 0;
+static uint32_t  s_modeSwitchUs = 0;   // Flush-Fenster: nach dem Umschalten liegen noch Alt-Frames in der Pipeline
+
+static uint32_t frameBufMax(uint16_t w, uint16_t h) {
+    uint32_t m = (uint32_t)w * h * 2;                    // MJPEG: grosszuegig, Windows reserviert diesen Puffer
+    if (m > 1024UL * 1024UL) m = 1024UL * 1024UL;
+    return m;
+}
+
 // Laufzeit
 static volatile bool s_txBusy = false;
 static volatile bool s_streaming = false, s_mounted = false, s_suspended = false;
@@ -141,36 +156,56 @@ static bool      s_srcTest = true;
 // Host startet den Stream mit COMMIT und liest -- kein SET_INTERFACE(1) wie bei ISO.
 static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps, uint8_t** outDesc, uint16_t* outLen) {
     const uint32_t interval = 10000000UL / fps;  // 100-ns-Einheiten
-    const uint32_t minbr = (uint32_t)w * h * 16UL, maxbr = (uint32_t)w * h * 16UL * fps;
-    const uint8_t video[] = {
+    // Ein Frame-Deskriptor je waehlbarer Aufloesung (s_mode*); ohne Liste genau
+    // einer (w,h) -- Testbild oder Kamera ohne Modusliste. Der Host waehlt per
+    // bFrameIndex, COMMIT schaltet den Sensor.
+    const int nFrames = (s_modeCount > 0) ? s_modeCount : 1;
+    const uint16_t csLen = TUD_VIDEO_DESC_CS_VS_FMT_MJPEG_LEN
+                         + (uint16_t)nFrames * TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT_LEN
+                         + TUD_VIDEO_DESC_CS_VS_COLOR_MATCHING_LEN;
+    const uint8_t partA[] = {
         TUD_VIDEO_DESC_IAD(ITF_VC, ITF_COUNT, STR_UVC),
         TUD_VIDEO_DESC_STD_VC(ITF_VC, 0, STR_UVC),
         TUD_VIDEO_DESC_CS_VC(0x0150, TUD_VIDEO_DESC_CAMERA_TERM_LEN + TUD_VIDEO_DESC_OUTPUT_TERM_LEN, UVC_CLOCK_HZ, ITF_VS),
         TUD_VIDEO_DESC_CAMERA_TERM(1, 0, 0, 0, 0, 0, 0),
         TUD_VIDEO_DESC_OUTPUT_TERM(2, VIDEO_TT_STREAMING, 0, 1, 0),
         TUD_VIDEO_DESC_STD_VS(ITF_VS, 0, 1, STR_UVC),   // alt 0 MIT dem Bulk-Endpunkt (kein alt 1)
-        TUD_VIDEO_DESC_CS_VS_INPUT(1, TUD_VIDEO_DESC_CS_VS_FMT_MJPEG_LEN + TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT_LEN + TUD_VIDEO_DESC_CS_VS_COLOR_MATCHING_LEN,
-                                   UVC_EP_IN, 0, 2, 0, 0, 0, 0),
-        TUD_VIDEO_DESC_CS_VS_FMT_MJPEG(1, 1, 0, 1, 0, 0, 0, 0),
-        TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT(1, 0, w, h, minbr, maxbr, s_maxFrame, interval, interval, interval, interval),
+        TUD_VIDEO_DESC_CS_VS_INPUT(1, csLen, UVC_EP_IN, 0, 2, 0, 0, 0, 0),
+        TUD_VIDEO_DESC_CS_VS_FMT_MJPEG(1, (uint8_t)nFrames, 0, 1, 0, 0, 0, 0),
+    };
+    const uint8_t partC[] = {
         TUD_VIDEO_DESC_CS_VS_COLOR_MATCHING(VIDEO_COLOR_PRIMARIES_BT709, VIDEO_COLOR_XFER_CH_BT709, VIDEO_COLOR_COEF_SMPTE170M),
         TUD_VIDEO_DESC_EP_BULK(UVC_EP_IN, bulkMps, 0)
     };
-    const uint16_t total = TUD_CONFIG_DESC_LEN + sizeof(video);
+    const uint16_t total = TUD_CONFIG_DESC_LEN + (uint16_t)sizeof(partA)
+                         + (uint16_t)nFrames * TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT_LEN
+                         + (uint16_t)sizeof(partC);
     // Extern versorgt -> SELF_POWERED, 100 mA (VBUS-Sense gibt es nicht -> siehe Header/USB-DEVICE.md)
     const uint8_t head[] = { TUD_CONFIG_DESCRIPTOR(1, ITF_COUNT, 0, total, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100) };
     uint8_t* d = (uint8_t*)malloc(total);
     if (!d) return false;
     if (*outDesc) free(*outDesc);
     *outDesc = d; *outLen = total;
-    memcpy(d, head, sizeof(head)); memcpy(d + sizeof(head), video, sizeof(video));
+    uint8_t* p = d;
+    memcpy(p, head, sizeof(head));   p += sizeof(head);
+    memcpy(p, partA, sizeof(partA)); p += sizeof(partA);
+    for (int i = 0; i < nFrames; i++) {
+        const uint16_t fw = (s_modeCount > 0) ? s_modeW[i] : w;
+        const uint16_t fh = (s_modeCount > 0) ? s_modeH[i] : h;
+        const uint32_t minbr = (uint32_t)fw * fh * 16UL, maxbr = (uint32_t)fw * fh * 16UL * fps;
+        const uint8_t frm[] = {
+            TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT((uint8_t)(i + 1), 0, fw, fh, minbr, maxbr,
+                                                frameBufMax(fw, fh), interval, interval, interval, interval)
+        };
+        memcpy(p, frm, sizeof(frm)); p += sizeof(frm);
+    }
+    memcpy(p, partC, sizeof(partC));
     return true;
 }
 
 static bool buildDescriptors(uint16_t w, uint16_t h, uint8_t fps) {
     s_w = w; s_h = h;
-    s_maxFrame = (uint32_t)w * h * 2;            // MJPEG: grosszuegig, Windows reserviert diesen Puffer
-    if (s_maxFrame > 1024UL * 1024UL) s_maxFrame = 1024UL * 1024UL;
+    s_maxFrame = frameBufMax(w, h);
     if (!buildOneConfig(w, h, fps, UVC_BULK_MPS_FS, &s_cfgDesc, &s_cfgLen)) return false;
     if (s_highSpeed && !buildOneConfig(w, h, fps, UVC_BULK_MPS_HS, &s_cfgDescHs, &s_cfgLenHs)) return false;
 
@@ -223,6 +258,23 @@ extern "C" int tud_video_commit_cb(uint_fast8_t ctl_idx, uint_fast8_t stm_idx, v
     uint32_t iv = parameters->dwFrameInterval; if (iv < 333333) iv = 333333; if (iv > 10000000) iv = 10000000;
     s_intervalMs = iv / 10000;
     s_payloadMax = parameters->dwMaxPayloadTransferSize;   // = WEIRDOS_UVC_PAYLOAD_MAX, sofern der Host es uebernimmt
+    // Aufloesungswahl des Hosts: bFrameIndex (1-basiert) -> Sensor umschalten.
+    // Schlaegt setMode fehl, bekommt der Host den FEHLER -- nicht stillschweigend
+    // eine andere Groesse als angesagt (der Deskriptor ist ein Vertrag).
+    const int fi = (int)parameters->bFrameIndex;
+    if (s_modeCount > 0 && fi >= 1 && fi <= s_modeCount) {
+        const uint16_t nw = s_modeW[fi - 1], nh = s_modeH[fi - 1];
+        if (nw != s_w || nh != s_h) {
+            if (!cameraManager.setMode(nw, nh)) {
+                logEvent(String("UVC: Host will ") + nw + "x" + nh + ", setMode lehnt ab -- Stream bleibt bei " + s_w + "x" + s_h);
+                return VIDEO_ERROR_OUT_OF_RANGE;
+            }
+            s_w = nw; s_h = nh; s_maxFrame = frameBufMax(nw, nh);
+            s_len = 0;                                        // letzter Frame hat die alte Groesse
+            s_modeSwitchUs = (uint32_t)esp_timer_get_time();  // Alt-Frames aus der Pipeline verwerfen
+            logEvent(String("UVC: Host waehlt ") + nw + "x" + nh);
+        }
+    }
     return VIDEO_ERROR_NONE;
 }
 extern "C" int tud_video_power_mode_cb(uint_fast8_t ctl_idx, uint8_t power_mod) { (void)ctl_idx; (void)power_mod; return VIDEO_ERROR_NONE; }
@@ -254,6 +306,14 @@ static void pump() {
     const void* data = nullptr; size_t len = 0;
     if (s_srcTest) { data = kUvcTestJpeg; len = UVC_TEST_JPEG_LEN; }
     else {
+        // Nach einer Sensor-Umschaltung liegen noch Frames der ALTEN Groesse in
+        // der Pipeline (esp_camera-Framebuffer). 400 ms verwerfen, dann nur noch
+        // Frames NACH dem aktuellen Stand nehmen -- ein Alt-Frame im neuen
+        // Stream ist exakt der Dekodier-Salat, den der Deskriptor-Fix beseitigt.
+        if (s_modeSwitchUs) {
+            if ((now - s_modeSwitchUs) < 400000UL) { s_skipsNoFrame++; return; }
+            s_modeSwitchUs = 0; s_seq = cameraStream.latestSequence(); s_len = 0;
+        }
         size_t n = cameraStream.copyLatest(&s_buf, &s_cap, &s_seq);   // 0 = kein neuer Frame
         if (n > 0) { s_len = n; }
         else if (s_len == 0 || (now - s_lastFrameUs) < 500000UL) { s_skipsNoFrame++; return; }   // kurz warten, sonst letzten Frame wiederholen
@@ -300,6 +360,19 @@ bool UsbDeviceService::begin() {
             return false;
         }
         w = cw; h = ch;
+        // Waehlbare Aufloesungen fuer den Deskriptor (Host waehlt per bFrameIndex).
+        // enumModes liefert nur, was setMode() annimmt (am PSRAM-Maximum gedeckelt).
+        s_modeCount = 0;
+        CameraVideoMode modes[UVC_MAX_MODES];
+        const int nm = cameraManager.enumModes(modes, UVC_MAX_MODES);
+        for (int i = 0; i < nm && s_modeCount < UVC_MAX_MODES; i++) {
+            if (!modes[i].width || !modes[i].height) continue;
+            s_modeW[s_modeCount] = modes[i].width;
+            s_modeH[s_modeCount] = modes[i].height;
+            s_modeCount++;
+        }
+    } else {
+        s_modeCount = 0;   // Testbild: genau ein Frame in Testbild-Groesse
     }
     // Port -> Controller/PHY/rhport aus dem Board-Mapping
     UsbDeviceHw hw = usbPortDeviceHw(cfg_.port);
