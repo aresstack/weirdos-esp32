@@ -22,7 +22,7 @@ jobs:
           g++ -std=c++11 -Wall -Wextra -Werror -I. zone_commit.cpp  tests/zone_commit_selftest.cpp  -o zc_selftest && ./zc_selftest
       # modules.json: jedes Profil gegen die harten Regeln (weirdos_module_rules.h) und unbekannte Schluessel
       - name: Profile in modules.json pruefen
-        run: python3 tools/profile_flags.py --check
+        run: python3 ci/profile_flags.py --check
 
   # Der Schnitt wird BEWIESEN: "full" muss dem bisherigen Build entsprechen,
   # "lean" (schwere Bausteine auf 0) muss linken -- faellt lean, ist ein Stub
@@ -117,7 +117,7 @@ jobs:
             fqbn: "esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled"
             flags: "-DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1 -DWEIRDOS_FEATURE_AUDIO=1 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0"
             optional: false
-          # Profile WORTWOERTLICH aus modules.json (tools/profile_flags.py): dieselben Flags, die das
+          # Profile WORTWOERTLICH aus modules.json (ci/profile_flags.py): dieselben Flags, die das
           # Cam-Tool erzeugt. Die Standardrolle: RTSP ueber LTE im IPsec-Tunnel, mit Weboberflaeche --
           # und ihr Rueckfall ohne Weboberflaeche (Einrichtung ueber die serielle Konsole).
           - name: S3 Profil surveillance-lte-ipsec (Standardrolle)
@@ -153,7 +153,7 @@ jobs:
       # Flags: entweder wortwoertlich aus der Matrix (Schnitt-Beweise) oder aus einem Profil der modules.json.
       - name: Compile-Flags bestimmen
         run: |
-          if [ -n "${{ matrix.profile }}" ]; then FLAGS=$(python3 tools/profile_flags.py "${{ matrix.profile }}"); else FLAGS='${{ matrix.flags }}'; fi
+          if [ -n "${{ matrix.profile }}" ]; then FLAGS=$(python3 ci/profile_flags.py "${{ matrix.profile }}"); else FLAGS='${{ matrix.flags }}'; fi
           echo "FLAGS=$FLAGS" >> "$GITHUB_ENV"
           echo "$FLAGS"
       - name: Compile ${{ matrix.name }}
