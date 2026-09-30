@@ -20,6 +20,9 @@ jobs:
         run: |
           g++ -std=c++11 -Wall -Wextra -Werror -I. zone_planner.cpp tests/zone_planner_selftest.cpp -o zp_selftest && ./zp_selftest
           g++ -std=c++11 -Wall -Wextra -Werror -I. zone_commit.cpp  tests/zone_commit_selftest.cpp  -o zc_selftest && ./zc_selftest
+      # modules.json: jedes Profil gegen die harten Regeln (weirdos_module_rules.h) und unbekannte Schluessel
+      - name: Profile in modules.json pruefen
+        run: python3 tools/profile_flags.py --check
 
   # Der Schnitt wird BEWIESEN: "full" muss dem bisherigen Build entsprechen,
   # "lean" (schwere Bausteine auf 0) muss linken -- faellt lean, ist ein Stub
@@ -114,6 +117,25 @@ jobs:
             fqbn: "esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled"
             flags: "-DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1 -DWEIRDOS_FEATURE_AUDIO=1 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0"
             optional: false
+          # Profile WORTWOERTLICH aus modules.json (tools/profile_flags.py): dieselben Flags, die das
+          # Cam-Tool erzeugt. Die Standardrolle: RTSP ueber LTE im IPsec-Tunnel, mit Weboberflaeche --
+          # und ihr Rueckfall ohne Weboberflaeche (Einrichtung ueber die serielle Konsole).
+          - name: S3 Profil surveillance-lte-ipsec (Standardrolle)
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            profile: surveillance-lte-ipsec
+            optional: false
+          - name: P4 Profil surveillance-lte-ipsec (Standardrolle)
+            fqbn: "esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled"
+            profile: surveillance-lte-ipsec
+            optional: false
+          - name: S3 Profil surveillance-lte-ipsec-headless (nur Konsole)
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            profile: surveillance-lte-ipsec-headless
+            optional: false
+          - name: P4 Profil surveillance-lte-ipsec-headless (nur Konsole)
+            fqbn: "esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled"
+            profile: surveillance-lte-ipsec-headless
+            optional: false
     continue-on-error: ${{ matrix.optional }}
     steps:
       - uses: actions/checkout@v4
@@ -128,11 +150,17 @@ jobs:
           arduino-cli config init --overwrite --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.11
+      # Flags: entweder wortwoertlich aus der Matrix (Schnitt-Beweise) oder aus einem Profil der modules.json.
+      - name: Compile-Flags bestimmen
+        run: |
+          if [ -n "${{ matrix.profile }}" ]; then FLAGS=$(python3 tools/profile_flags.py "${{ matrix.profile }}"); else FLAGS='${{ matrix.flags }}'; fi
+          echo "FLAGS=$FLAGS" >> "$GITHUB_ENV"
+          echo "$FLAGS"
       - name: Compile ${{ matrix.name }}
         run: |
           arduino-cli compile --fqbn "${{ matrix.fqbn }}" --warnings default \
-            --build-property "compiler.c.extra_flags=${{ matrix.flags }}" \
-            --build-property "compiler.cpp.extra_flags=${{ matrix.flags }}" \
+            --build-property "compiler.c.extra_flags=$FLAGS" \
+            --build-property "compiler.cpp.extra_flags=$FLAGS" \
             . 2>&1 | tee build.log
       # Groessen als Annotation am Check-Run: die stehen sonst nur im Log (Download nur mit Token),
       # als Annotation liest sie die oeffentliche API (GET .../check-runs/{job_id}/annotations) -> MODULES.md §8.

@@ -26,6 +26,7 @@ Linken samt seiner globalen Puffer heraus.
 | **USB-Webcam** am PC | CAMERA, USB_DEVICE, UVC | kein IP-Stack, kein WLAN, kein Modem |
 | **RTSP-Kamera über WLAN** | CAMERA, RTSP, NET, WIFI, (HTTP+WEBUI zum Einrichten) | Modem, VPN, Zonen |
 | **RTSP-Kamera über LTE** | CAMERA, RTSP, NET, USB_HOST, MODEM, (CONSOLE oder WEBUI) | WLAN, VPN, Zonen |
+| **Überwachungskamera LTE im IPsec-Tunnel** (die Standardrolle; Profile `surveillance-lte-ipsec` und `…-headless`) | CAMERA, RTSP, H264 (P4), NET, USB_HOST, MODEM, IPSEC, CRYPTO_AES, dazu HTTP+WEBUI+OTA+BACKUP — oder als Rückfall nur CONSOLE (Einrichtung: `apn`, `wan`, `ipsec set`/`save`, `camera rtsp`) | WLAN, WireGuard, Zonen, DynDNS, ACME, HTTPS |
 | **Reiner VPN-Gateway** (kein Bild) | NET, Uplink (WIFI \| MODEM), WIREGUARD \| IPSEC, ROUTER, Downlink (WIFI-AP \| USB_NCM), HTTP, WEBUI | Kamera, Video |
 | **USB-Tethering** (Internet vom Modem an den PC) | NET, USB_HOST, MODEM, USB_DEVICE, USB_NCM, ROUTER | Kamera, WLAN, VPN — **nur P4** (zwei USB) |
 | **WLAN-Hotspot** (Modem → WLAN) | NET, USB_HOST, MODEM, WIFI, ROUTER | Kamera, VPN — **nur mit Funk** (nicht P4) |
