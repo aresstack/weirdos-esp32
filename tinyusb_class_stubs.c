@@ -16,6 +16,7 @@
 // Kompiliert immer mit; ohne WEIRDOS_USB_DEVICE wird usbd nicht gelinkt und die Stubs bleiben unbenutzt.
 // ============================================================================
 #include "soc/soc_caps.h"
+#include "weirdos_features.h"   // WEIRDOS_FEATURE_AUDIO: mit dem Mikrofon-Baustein bleibt die Audio-Klasse echt
 #if SOC_USB_OTG_SUPPORTED && defined(CONFIG_TINYUSB_ENABLED)
 #include "tusb.h"
 
@@ -32,9 +33,14 @@ STUB_CLASS(hidd)
 STUB_CLASS(midid)
 STUB_CLASS(vendord)
 STUB_CLASS(netd)
+#if !WEIRDOS_FEATURE_AUDIO
+// Ohne den Baustein AUDIO bleibt die Audio-Klasse ein Stub. MIT AUDIO (USB-Mikrofon, UAC2) referenziert
+// usb_device_service.cpp tud_audio_write & Co. -> der Linker holt audio_device.o aus dem Archiv, das
+// audiod_* selbst definiert; Stubs daneben waeren "multiple definition".
 STUB_CLASS(audiod)
 bool audiod_xfer_isr(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) { (void)rhport; (void)ep_addr; (void)result; (void)xferred_bytes; return false; }
 void audiod_sof_isr(uint8_t rhport, uint32_t frame_count) { (void)rhport; (void)frame_count; }
+#endif
 // MSC hat kein deinit in der Tabelle
 void     mscd_init(void) {}
 void     mscd_reset(uint8_t rhport) { (void)rhport; }

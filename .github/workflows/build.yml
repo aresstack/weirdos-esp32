@@ -86,6 +86,12 @@ jobs:
             optional: false
           # Das Profil "webcam" wortwoertlich: CAMERA + USB_DEVICE + UVC, sonst NICHTS -- kein IP-Stack, kein
           # Funk, kein Server, keine Konsole. Beweist den NET-Schnitt; die Groessenzeile ist die Untergrenze.
+          # Webcam + USB-Mikrofon (UAC2, Baustein AUDIO): die Audio-Klasse der Core-Lib bleibt hier echt
+          # (tinyusb_class_stubs.c stubbt audiod nur ohne AUDIO). S3 = I2S-PDM-Mikro des XIAO Sense.
+          - name: S3 webcam+mic (UVC + UAC2)
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=default,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: "-DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1 -DWEIRDOS_FEATURE_AUDIO=1 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0"
+            optional: false
           - name: S3 webcam-only (ohne NET)
             fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=default,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
             flags: "-DWEIRDOS_FEATURE_NET=0 -DWEIRDOS_FEATURE_WIFI=0 -DWEIRDOS_FEATURE_BLE=0 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0 -DWEIRDOS_FEATURE_HTTP=0 -DWEIRDOS_FEATURE_WEBUI=0 -DWEIRDOS_FEATURE_VIDEO_HTTP=0 -DWEIRDOS_FEATURE_RTSP=0 -DWEIRDOS_FEATURE_ROUTER=0 -DWEIRDOS_FEATURE_WIREGUARD=0 -DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_CRYPTO_AES=0 -DWEIRDOS_FEATURE_DYNDNS=0 -DWEIRDOS_FEATURE_TLS_CLIENT=0 -DWEIRDOS_FEATURE_TLS_SERVER=0 -DWEIRDOS_FEATURE_ACME=0 -DWEIRDOS_FEATURE_OTA=0 -DWEIRDOS_FEATURE_NETSCAN=0 -DWEIRDOS_FEATURE_BACKUP=0 -DWEIRDOS_FEATURE_CONSOLE=0 -DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1"
@@ -102,6 +108,11 @@ jobs:
           - name: P4 lean (ohne IPsec/Zonen)
             fqbn: "esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled"
             flags: "-DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_ROUTER=0"
+            optional: false
+          # P4 = ES8311-Codec ueber I2S-Std + I2C (mic_capture.cpp waehlt das Backend per Target).
+          - name: P4 webcam+mic (UVC + UAC2, FS-Port)
+            fqbn: "esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled"
+            flags: "-DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1 -DWEIRDOS_FEATURE_AUDIO=1 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0"
             optional: false
     continue-on-error: ${{ matrix.optional }}
     steps:
