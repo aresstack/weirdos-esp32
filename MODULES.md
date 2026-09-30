@@ -193,7 +193,7 @@ Was sich beim Verdrahten als Regel bewährt hat:
 - **Pure Zuordnungen vor den Schalter** (`modeId()`, `systemClockIso()`,
   `serialConsoleBaud()`): einmal definiert, kein Stub-Duplikat, das auseinanderläuft.
 
-## 8. Messungen (CI, esp32-Core 3.3.11, Stand Lauf 15 = Commit f4bb677; webcam-only aus Lauf 18 = c0505d7)
+## 8. Messungen (CI, esp32-Core 3.3.11, Stand Lauf 15 = Commit f4bb677; webcam-only aus Lauf 18 = c0505d7; beide Webcam-Zeilen neu aus Lauf 24 = 273e5cf, Bulk-UVC)
 
 Was der Schnitt auf dem Gerät tatsächlich spart. „statisches RAM" = globale
 Variablen (`.data`+`.bss`), also das, was dem Heap fehlt, bevor irgendetwas läuft.
@@ -213,8 +213,8 @@ Stub unvollständig oder ein Baustein leckt in einen anderen.
 | S3 no-wifi (P4-Pfad) | WIFI | 2 271 842 B (67 %) | 81 008 B |
 | S3 slim-control | TLS_SERVER, ACME, TLS_CLIENT, DYNDNS, OTA, CONSOLE, NETSCAN, BACKUP, CRYPTO_AES, IPSEC | 2 138 558 B (63 %) | 79 884 B |
 | S3 headless | HTTP, WEBUI, VIDEO_HTTP, OTA, TLS_SERVER, ACME | 1 734 058 B (51 %) | 96 936 B |
-| S3 webcam (USB-OTG) | MODEM, USB_HOST; **USB_DEVICE + UVC auf 1** | 2 573 478 B (76 %) | 130 836 B |
-| S3 webcam-only | alles außer CAMERA, USB_DEVICE, UVC (auch NET) | **527 463 B (15 %)** | 77 256 B |
+| S3 webcam (USB-OTG) | MODEM, USB_HOST; **USB_DEVICE + UVC auf 1** | 2 574 158 B (77 %) | 134 852 B |
+| S3 webcam-only | alles außer CAMERA, USB_DEVICE, UVC (auch NET) | **528 119 B (15 %)** | 81 280 B |
 
 Was die Zeilen sagen:
 
@@ -235,9 +235,10 @@ Was die Zeilen sagen:
 - **Modem weg (no-modem):** −167 KB Flash, −3 KB statisches RAM (EC200A-Treiber, PPP, ECM,
   SIM, USB-Host-Recovery).
 - **USB-Webcam (USB_DEVICE + UVC an):** +79 KB Flash und +32 KB statisches RAM gegenüber no-modem — die
-  TinyUSB-Puffer, die der Baustein USB_DEVICE deshalb nie per Vorgabe mitbringt. Seit dem Bulk-Transport
-  kommen ~4 KB statisches RAM dazu (der eigene Payload-Puffer der Videoklasse, `WEIRDOS_UVC_PAYLOAD_MAX`
-  = 4064 B statt der 64 B der Bibliothek) — der Preis für ~1 MB/s statt ~62 KB/s am Full-Speed-Port.
+  TinyUSB-Puffer, die der Baustein USB_DEVICE deshalb nie per Vorgabe mitbringt. Der Bulk-Transport
+  (Lauf 24 gegen Lauf 18) kostet **+4 016 B statisches RAM** und +680 B Flash: der eigene Payload-Puffer
+  der Videoklasse (`WEIRDOS_UVC_PAYLOAD_MAX` = 4064 B statt der 64 B der Bibliothek) — der Preis für
+  ~1 MB/s statt ~62 KB/s am Full-Speed-Port. Die übrigen elf Zeilen sind in Lauf 24 byte-identisch.
 - **IP-Stack weg (webcam-only):** das Profil „USB-Webcam" wortwörtlich — CAMERA, USB_DEVICE,
   UVC und sonst nichts. **527 KB statt 2 573 KB Flash (−80 %), 77 KB statt 131 KB statisches
   RAM** gegenüber der Webcam mit vollem Netz-Unterbau; gegenüber dem Vollausbau fehlen
