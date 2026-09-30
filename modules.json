@@ -137,7 +137,7 @@
       "note": "Nur P4 (USB-Host fuers Modem UND USB-Geraet zum PC gleichzeitig). Zonen-Policy usb-lan > modem-uplink kommt als Standard." },
     { "id": "usb-tether-wifi",  "label": "USB-Tethering (WLAN -> PC)",             "modules": ["NET", "WIFI", "USB_DEVICE", "USB_NCM", "ROUTER", "HTTP", "WEBUI", "CONSOLE"],
       "note": "PC bekommt Internet vom WLAN ueber das USB-Kabel (NAT). Laeuft auch auf dem S3 -- WLAN braucht den USB-Port nicht. Standard-Policy usb-lan > wlan-sta-uplink." },
-    { "id": "usb-tether-vpn",   "label": "VPN-Dongle (USB -> VPN)",                "modules": ["NET", "WIFI", "USB_DEVICE", "USB_NCM", "ROUTER", "WIREGUARD", "IPSEC", "HTTP", "WEBUI", "CONSOLE"],
+    { "id": "usb-tether-vpn",   "label": "VPN-Dongle (USB -> VPN)",                "modules": ["NET", "WIFI", "USB_DEVICE", "USB_NCM", "ROUTER", "WIREGUARD", "IPSEC", "CRYPTO_AES", "HTTP", "WEBUI", "CONSOLE"],
       "note": "PC an USB, Verkehr ins VPN (WireGuard/IPsec ueber WLAN; P4 zusaetzlich LTE). Ziel per Zonen-Policy waehlen: usb-lan > wg-client bzw. ipsec-client." },
     { "id": "wifi-hotspot",     "label": "WLAN-Hotspot (LTE -> WLAN)",             "modules": ["NET", "USB_HOST", "MODEM", "WIFI", "ROUTER", "HTTP", "WEBUI", "DYNDNS", "TLS_CLIENT"],
       "note": "Mobilfunk als WLAN teilen. Nur mit Funk (nicht P4)." },
