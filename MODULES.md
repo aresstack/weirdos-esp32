@@ -193,7 +193,7 @@ Was sich beim Verdrahten als Regel bewährt hat:
 - **Pure Zuordnungen vor den Schalter** (`modeId()`, `systemClockIso()`,
   `serialConsoleBaud()`): einmal definiert, kein Stub-Duplikat, das auseinanderläuft.
 
-## 8. Messungen (CI, esp32-Core 3.3.11, Stand Lauf 15 = Commit f4bb677; webcam-only aus Lauf 18 = c0505d7; beide Webcam-Zeilen neu aus Lauf 24 = 273e5cf, Bulk-UVC)
+## 8. Messungen (CI, esp32-Core 3.3.11, Stand Lauf 15 = Commit f4bb677; webcam-only aus Lauf 18 = c0505d7; Webcam-Zeilen aus Lauf 30 = e052cdc: Bulk-UVC, Sensor-Modi, UAC2-Mikrofon)
 
 Was der Schnitt auf dem Gerät tatsächlich spart. „statisches RAM" = globale
 Variablen (`.data`+`.bss`), also das, was dem Heap fehlt, bevor irgendetwas läuft.
@@ -213,8 +213,9 @@ Stub unvollständig oder ein Baustein leckt in einen anderen.
 | S3 no-wifi (P4-Pfad) | WIFI | 2 271 842 B (67 %) | 81 008 B |
 | S3 slim-control | TLS_SERVER, ACME, TLS_CLIENT, DYNDNS, OTA, CONSOLE, NETSCAN, BACKUP, CRYPTO_AES, IPSEC | 2 138 558 B (63 %) | 79 884 B |
 | S3 headless | HTTP, WEBUI, VIDEO_HTTP, OTA, TLS_SERVER, ACME | 1 734 058 B (51 %) | 96 936 B |
-| S3 webcam (USB-OTG) | MODEM, USB_HOST; **USB_DEVICE + UVC auf 1** | 2 574 158 B (77 %) | 134 852 B |
-| S3 webcam-only | alles außer CAMERA, USB_DEVICE, UVC (auch NET) | **528 119 B (15 %)** | 81 280 B |
+| S3 webcam (USB-OTG) | MODEM, USB_HOST; **USB_DEVICE + UVC auf 1** | 2 539 398 B (75 %) | 104 372 B |
+| S3 webcam+mic (UVC + UAC2) | wie webcam; **zusätzlich AUDIO auf 1** | 2 560 098 B (76 %) | 111 244 B |
+| S3 webcam-only | alles außer CAMERA, USB_DEVICE, UVC (auch NET) | **492 175 B (14 %)** | 50 808 B |
 
 Was die Zeilen sagen:
 
@@ -239,6 +240,9 @@ Was die Zeilen sagen:
   (Lauf 24 gegen Lauf 18) kostet **+4 016 B statisches RAM** und +680 B Flash: der eigene Payload-Puffer
   der Videoklasse (`WEIRDOS_UVC_PAYLOAD_MAX` = 4064 B statt der 64 B der Bibliothek) — der Preis für
   ~1 MB/s statt ~62 KB/s am Full-Speed-Port. Die übrigen elf Zeilen sind in Lauf 24 byte-identisch.
+  Lauf 30 (nach den Commits „echte Sensorauflösung", „Auflösung wählbar" und „UAC2-Mikrofon") misst
+  die Webcam mit 104 372 B und webcam-only mit 50 808 B statischem RAM; das Mikrofon (AUDIO an) kostet
+  auf dem S3 +6 872 B RAM und +20,7 KB Flash, auf dem P4 (ES8311) 2 507 566 B / 83 204 B.
 - **IP-Stack weg (webcam-only):** das Profil „USB-Webcam" wortwörtlich — CAMERA, USB_DEVICE,
   UVC und sonst nichts. **527 KB statt 2 573 KB Flash (−80 %), 77 KB statt 131 KB statisches
   RAM** gegenüber der Webcam mit vollem Netz-Unterbau; gegenüber dem Vollausbau fehlen
