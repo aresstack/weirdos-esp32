@@ -430,6 +430,7 @@ int streamPort = 81;
 String streamPath = "/stream";
 // Video-Server: Transport-Auswahl + RTSP (RTSP-Server-Runtime folgt; heute Config-Stub).
 String streamType = "http";      // "http" (MJPEG) | "rtsp"
+String streamUser = "";          // RTSP-Benutzername (leer = beliebig, nur der Schluessel zaehlt)
 bool   rtspEnabled = false;
 int    rtspPort = 554;
 String rtspTransport = "tcp";    // "tcp" | "udp"
@@ -2288,6 +2289,7 @@ void loadCameraConfig() {
     multiStreamEnabled = preferences.getBool("multi", CAMERA_DEFAULT_MULTI_STREAM);
     streamEnabled = preferences.getBool("strm", true);
     streamKey = preferences.getString("strmkey", "");
+    streamUser = preferences.getString("strmuser", "");
     // Sicherheits-Bootstrap: der Stream (Port 81, MJPEG + H.264) war ab Werk OHNE Schluessel offen --
     // auf einem Geraet mit oeffentlicher IPv4 ein Kamera-Leak. Wurde noch nie ein Schluessel gesetzt
     // (Werkszustand), einen zufaelligen erzeugen; er steht unter Server > Video > Stream. Wer den
@@ -4356,12 +4358,25 @@ void handleVideoConfig(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     // Stream-Transport: off | http | rtsp (Dropdown). Genau EINER laeuft; "off" = kein Videoserver.
     String st = req.arg("streamtype"); if (st != "rtsp" && st != "off") st = "http";
     bool enableStream = (st == "http");   // Legacy-Flag "strm" = HTTP-Stream-Server an
-    String key = req.arg("streamkey");
+    // Schluessel-Robustheit (Befund 2026-10-01, zwei Bugs in einem Formular):
+    //  A) Der RTSP-Zweig trug KEIN streamkey-Feld -> jedes Speichern dort sendete "" und
+    //     loeschte den Schluessel STILL in NVS (als "bewusste Nutzerwahl" markiert).
+    //     Fehlt das Feld im Request, gilt deshalb jetzt der bestehende Schluessel.
+    //  B) Die laufende Auth las weiter die alte globale Variable -- Aenderungen wirkten
+    //     erst nach Neustart (VLC lehnte den "richtigen" Schluessel ab). Jetzt live.
+    String key = req.hasArg("streamkey") ? req.arg("streamkey") : streamKey;
     key.trim();
     int port = sanitizeStreamPort(req.hasArg("streamport") ? req.arg("streamport").toInt() : 81);
     String path = sanitizeStreamPath(req.arg("streampath"));
 
     saveVideoServerConfig(allowMultiStream, enableStream, key, port, path);
+    streamKey = key;   // Auth (RTSP Basic + HTTP ?key=) sofort, nicht erst nach Neustart
+    // Stream-Benutzer (RTSP Basic): gleiche Robustheit wie der Schluessel -- fehlt das
+    // Feld im Formular, bleibt der bestehende Wert; Aenderung wirkt sofort.
+    if (req.hasArg("streamuser")) { streamUser = req.arg("streamuser"); streamUser.trim(); }
+    preferences.begin("camera", false);
+    preferences.putString("strmuser", streamUser);
+    preferences.end();
 
     // Video-Transport: Stream-Typ (http/rtsp) + RTSP-Parameter. RTSP-Server-Runtime folgt;
     // hier wird die Wahl nur persistiert (kein stiller Fallback -- UI weist Stub ehrlich aus).

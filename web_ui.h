@@ -39,7 +39,7 @@ extern bool webHttpsEnabled;   // Management-Transport HTTPS (UI-Schalter, Syste
 extern volatile uint32_t g_httpRenderStage;   // In-Band-Crash-Marker fuer sendAppPage (Absturzstelle)
 extern String g_restartReasons;              // "Neustart erforderlich" (gelbe Box auf jeder Seite); leer = nichts offen
 void   markRestartRequired(const String& why);   // Einstellung wirkt erst beim Boot -> Box zeigen (Grund dedupliziert)
-extern String devicePin, streamKey, configuredSsid, cpuProfile,
+extern String devicePin, streamKey, streamUser, configuredSsid, cpuProfile,
               dyndnsProvider, dyndnsUrl, dyndnsDomain, dyndnsUser, dyndnsPass, dyndnsEgress;
 extern String streamPath;   // konfigurierbarer MJPEG-Stream-Pfad (Default "/stream")
 extern int cameraConfiguredMaxIndex, cameraActiveMaxIndex, cameraCurrentIndex,

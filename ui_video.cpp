@@ -96,6 +96,25 @@ void renderVideoServer(WeirdUiWriter& w) {
         "<p class='cam-hint'>Genau EIN Transport laeuft (Socket-Budget). Einzelbilder gibt es unabhaengig davon immer ueber <code>/capture</code> auf der Weboberflaeche. Wirkt nach Neustart.</p>"
 
         // ---- HTTP-MJPEG-Einstellungen ----
+        // Der Stream-Schluessel gilt fuer BEIDE Transporte (HTTP ?key=..., RTSP Basic-Auth)
+        // und steht deshalb VOR den Transport-Bloecken -- er sass frueher nur im HTTP-Block,
+        // wodurch (a) Speichern im RTSP-Modus ihn still leerte und (b) niemand ihn im
+        // RTSP-Modus sehen/aendern konnte ("Tab HTTP" gab es nicht als Tab).
+        "<label for='streamuser'>Stream-Benutzer (RTSP-Clients wie VLC fragen Benutzername UND Passwort ab; "
+        "leer = Benutzername egal, nur der Schluessel zaehlt)</label>"
+        "<input id='streamuser' name='streamuser' type='text' autocomplete='off' placeholder='(leer = egal)' value='"
+    );
+    w.write(escapeHtml(streamUser));
+    w.write(
+        "'>"
+        "<label for='streamkey'>Stream-Schluessel/Passwort &mdash; gilt fuer HTTP (<code>?key=...</code>) UND RTSP "
+        "(Basic-Auth: <code>rtsp://&lt;benutzer&gt;:&lt;schluessel&gt;@&lt;ip&gt;/...</code>). "
+        "Leer = OHNE Schutz (ueber eine oeffentliche IPv4 dann fuer jeden abrufbar); ab Werk zufaellig gesetzt.</label>"
+        "<input id='streamkey' name='streamkey' type='text' autocomplete='off' placeholder='(leer)' value='"
+    );
+    w.write(escapeHtml(streamKey));
+    w.write(
+        "'>"
         "<div data-streamtype='http'>"
         "<label class='check-row'><input type='checkbox' name='multi' value='1'"
     );
@@ -119,20 +138,18 @@ void renderVideoServer(WeirdUiWriter& w) {
     w.write(escapeHtml(streamPath));
     w.write(
         "'>"
-        "<label for='streamkey'>Stream-Schluessel (leer = OHNE Schutz -- der Stream ist dann ueber die oeffentliche IPv4 fuer jeden abrufbar; ab Werk zufaellig gesetzt)</label>"
-        "<input id='streamkey' name='streamkey' type='text' autocomplete='off' placeholder='(leer)' value='"
-    );
-    w.write(escapeHtml(streamKey));
-    w.write(
-        "'>"
-        "</div>"   // /http-Block
+        "</div>"   // /http-Block (Stream-Schluessel-Feld steht jetzt VOR den Bloecken, gilt fuer beide)
 
         // ---- RTSP-Einstellungen (rtsp_server.*: RFC 2326/2435/6184, ersetzt den HTTP-Stream-Server) ----
         "<div data-streamtype='rtsp'>"
         "<div class='info' style='margin:8px 0'>"
         "<div><span>MJPEG (RTP/JPEG, RFC 2435)</span><span><code>rtsp://&lt;ip&gt;:<span class='rtsp-port'>554</span>/mjpeg</code></span></div>"
+#if WEIRDOS_FEATURE_H264
         "<div><span>H.264 (HW-Encoder, RFC 6184)</span><span><code>rtsp://&lt;ip&gt;:<span class='rtsp-port'>554</span>/h264</code> &nbsp;<small>optional <code>?w=1280&amp;h=720</code></small></span></div>"
-        "<div><span>Zugriff</span><span>Stream-Schluessel (Tab HTTP) als Basic-Auth: <code>rtsp://user:&lt;schluessel&gt;@&lt;ip&gt;/...</code>; leer = ohne</span></div>"
+#else
+        "<div><span>H.264</span><span>nicht auf diesem SoC (HW-Encoder nur ESP32-P4) &mdash; dieser Chip streamt MJPEG</span></div>"
+#endif
+        "<div><span>Zugriff</span><span>Basic-Auth mit Stream-Benutzer + Schluessel (Felder oben): <code>rtsp://&lt;benutzer&gt;:&lt;schluessel&gt;@&lt;ip&gt;/...</code>; Benutzer leer = egal; Schluessel leer = ohne Schutz</span></div>"
         "</div>"
         "<p class='cam-hint'>Standardkonform fuer VLC, ffmpeg/ffplay, NVRs. RTP und RTCP laufen als Vorgabe im RTSP-TCP-Kanal "
         "(interleaved) -- ein Socket je Client. UDP kostet je Client zwei weitere Sockets; nur freigeben, wenn ein "
@@ -155,7 +172,9 @@ void renderVideoServer(WeirdUiWriter& w) {
     w.write(
         ">TCP und UDP (RTP/AVP ueber UDP zusaetzlich erlauben)</option></select>"
         "</div>"   // /rtsp-Block
-
+    );
+#if WEIRDOS_FEATURE_H264
+    w.write(
         // --- H.264 (HW-Encoder, fMP4 auf dem Stream-Port): Bitrate + adaptive Bildrate. Gilt fuer
         //     beide Transporte. Wirkt beim naechsten Streamstart.
         "<h2 class='section-title'>H.264</h2>"
@@ -242,6 +261,18 @@ void renderVideoServer(WeirdUiWriter& w) {
         "der jeweils laufende Video-Encoder. MJPEG braucht keinen internen Speicher (Bildpuffer im PSRAM, "
         "gemeinsam ueber den Verteiler) -- es gibt also EINE Video-Reserve, keine zwei.</p>"
         "<p id='vg-guardmsg' class='scan-status'></p>"
+    );
+#else
+    // Ohne H.264-Baustein (S3: kein HW-Encoder) die Sektionen NICHT anbieten -- die UI zeigte
+    // /h264-URL, Ziel-Bitrate und Boot-Reserve, als gaebe es sie; VLC lief gegen ein Geisterziel
+    // ("kann Adresse nicht oeffnen"; Befund 2026-10-01).
+    w.write(
+        "<h2 class='section-title'>H.264</h2>"
+        "<p class='cam-hint'>Auf diesem SoC nicht verfuegbar: H.264 braucht den HW-Encoder des "
+        "ESP32-P4. Dieses Geraet streamt MJPEG (RTSP <code>/mjpeg</code> bzw. HTTP-Stream).</p>"
+    );
+#endif
+    w.write(
         "</div>"   // /psub-video-stream
 
         // ===== Bild: geraetespezifische Sensor-/Bildparameter =====

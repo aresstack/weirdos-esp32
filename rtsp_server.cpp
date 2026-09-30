@@ -310,7 +310,15 @@ static bool authOk(const char* req) {
     }
     out[o] = 0;
     const char* colon = strchr((const char*)out, ':');
-    return colon && streamKey == String(colon + 1);
+    if (!colon) return false;
+    // Benutzername: ist einer KONFIGURIERT, muss er exakt stimmen (VLC fragt beide Felder ab --
+    // "wird ignoriert" war Murks-Semantik). Leer konfiguriert = Benutzername egal, nur der
+    // Schluessel zaehlt (kompatibel zu bestehenden URLs rtsp://x:<key>@...).
+    if (streamUser.length()) {
+        const String gotUser = String((const char*)out).substring(0, (int)(colon - (const char*)out));
+        if (gotUser != streamUser) return false;
+    }
+    return streamKey == String(colon + 1);
 }
 static String localIpOf(int fd) {
     struct sockaddr_in6 a; socklen_t al = sizeof(a); char ip[48] = "0.0.0.0";
@@ -329,7 +337,18 @@ static uint8_t mountFromUrl(const String& url, uint16_t* w, uint16_t* h) {
     while (path.endsWith("/") && path.length() > 1) path.remove(path.length() - 1);
     if (w && h) { int a = q.indexOf("w="); int b = q.indexOf("h="); *w = a >= 0 ? (uint16_t)q.substring(a + 2).toInt() : 0; *h = b >= 0 ? (uint16_t)q.substring(b + 2).toInt() : 0; }
     if (path == "/mjpeg") return M_MJPEG;
+#if WEIRDOS_FEATURE_H264
     if (path == "/h264")  return M_H264;
+#else
+    // Ohne H.264-Baustein (S3: kein HW-Encoder) den Mount gar nicht erst anbieten:
+    // sauberes 404 im DESCRIBE statt Session-Abbruch nach PLAY (VLC zeigte sonst nur
+    // "kann Adresse nicht oeffnen" ohne Grund; Befund 2026-10-01).
+    if (path == "/h264") {
+        static bool s_h264Note = false;
+        if (!s_h264Note) { s_h264Note = true; logEvent("RTSP: /h264 angefragt -- H.264 nicht im Build (HW-Encoder nur P4), 404"); }
+        return M_NONE;
+    }
+#endif
     return M_NONE;
 }
 static String sdpFor(RtspSession& s, uint8_t mount) {
