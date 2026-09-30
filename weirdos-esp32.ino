@@ -537,6 +537,19 @@ void logEvent(const String& text) {
     Serial.print("[event] "); Serial.println(text);
 }
 
+// Ereignis-Ring als Text -- fuer den Konsolen-Dump der CDC-Lebensader: wer den
+// "WeirdOS Console"-COM oeffnet, bekommt die Boot-Ereignisse, auch wenn Serial
+// (UART0) nirgends angeschlossen ist (usb_device_service, Dump beim Verbinden).
+String eventLogText() {
+    String t;
+    int idx = (g_eventHead - g_eventCount + EVENT_LOG_N) % EVENT_LOG_N;
+    for (int i = 0; i < g_eventCount; i++) {
+        const EventEntry& e = g_events[(idx + i) % EVENT_LOG_N];
+        t += "[+"; t += (unsigned long)(e.ms / 1000UL); t += "s] "; t += e.text; t += "\r\n";
+    }
+    return t;
+}
+
 void dyndnsForceNow();   // erzwingt ein sofortiges DynDNS-Update (Def. weiter unten)
 
 #if WEIRDOS_FEATURE_MODEM   // PPP-/Praesenz-Observer

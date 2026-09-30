@@ -60,6 +60,7 @@ extern String rtspTransport;// "tcp" = nur TCP interleaved (1 Socket/Client) | "
 
 // ---- App-Hooks (Definition in der .ino), die die View aufruft -------------
 void   logEvent(const String& text);   // App-Ereignis-Ringpuffer (System > Ereignisse), auch ohne Serial sichtbar
+String eventLogText();                 // der Ring als Text -- Konsolen-Dump der CDC-Lebensader (usb_device_service)
 String createSizeOptionsHtml(int maxIndex, int selectedIndex);
 String wifiStatusText();
 bool   wifiPortalConnected();   // WLAN im Zustand PORTAL_WIFI_CONNECTED?

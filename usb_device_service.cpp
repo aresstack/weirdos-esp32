@@ -586,10 +586,33 @@ static void pumpAudio() {
 #endif
 
 static void usbdevTask(void*) { usbDeviceService.taskLoop(); vTaskDelete(nullptr); }
+// Konsolen-Dump der Lebensader: wer den "WeirdOS Console"-COM oeffnet (DTR),
+// bekommt einmalig die Boot-Ereignisse + den USB-Status. In OTG-Builds haengt
+// Serial an UART0 (unsichtbar) -- DAS hier ist der Log-Zugang am selben Kabel.
+static void cdcDumpOnConnect() {
+    static bool wasConnected = false;
+    const bool connected = tud_cdc_n_connected(0);
+    if (connected && !wasConnected) {
+        String t = String("\r\n=== WeirdOS: Boot-Ereignisse ===\r\n") + eventLogText()
+                 + "=== USB-Status ===\r\n" + usbDeviceService.statusText() + "=== Ende ===\r\n";
+        const char* p = t.c_str();
+        size_t left = t.length();
+        uint32_t guard = 0;
+        while (left && guard++ < 2000) {              // ~Sekunden-Deckel, blockiert nie dauerhaft
+            uint32_t n = tud_cdc_n_write(0, p, left);
+            p += n; left -= n;
+            tud_cdc_n_write_flush(0);
+            tud_task_ext(1, false);                   // FIFO abtransportieren (gleicher Task)
+        }
+    }
+    wasConnected = connected;
+}
+
 void UsbDeviceService::taskLoop() {
     for (;;) {
         tud_task_ext(2, false);   // Ereignisse verarbeiten, max. 2 ms blockieren
         pump();
+        cdcDumpOnConnect();
 #if WEIRDOS_UAC_SUPPORTED
         pumpAudio();
 #endif
