@@ -88,6 +88,8 @@
 
     { "id": "webcam",           "label": "USB-Webcam",                           "modules": ["CAMERA", "USB_DEVICE", "UVC"],
       "note": "Das Board als Webcam am PC. Kein IP-Stack, kein Funk -- das kleinste Bild-Profil." },
+    { "id": "webcam-audio",     "label": "USB-Webcam + Mikrofon",                "modules": ["CAMERA", "USB_DEVICE", "UVC", "AUDIO"],
+      "note": "Kamera UND Mikrofon am PC in einem Geraet (UVC + UAC2). Kein IP-Stack, kein Funk. Das Mikrofon-Backend waehlt die Firmware automatisch nach Board (S3-PDM / P4-ES8311)." },
     { "id": "webcam-managed",   "label": "USB-Webcam mit Weboberflaeche",           "modules": ["CAMERA", "USB_DEVICE", "UVC", "NET", "WIFI", "HTTP", "WEBUI", "OTA"],
       "note": "Webcam am PC, Einstellungen und Update ueber WLAN. Auf dem S3 laeuft USB dabei nur als Geraet (ein Port)." },
     { "id": "browser-cam",      "label": "Browser-Kamera (MJPEG/HTTPS)",         "modules": ["CAMERA", "NET", "WIFI", "HTTP", "WEBUI", "VIDEO_HTTP", "TLS_SERVER", "BACKUP"],
