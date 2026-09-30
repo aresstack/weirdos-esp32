@@ -5879,7 +5879,24 @@ static String qrSvgFromText(const String& text) {
 void handleWgClientGen(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     resNoCache(res);
     String cname = req.arg("name"); cname.trim();
-    String conf = wireguardService.generateClientConfig(dyndnsDomain, cname);
+    // Endpoint fuer die Client-Config: die Adresse, unter der der Server JETZT wirklich
+    // erreichbar ist. Oeffentlich erreichbar (Mobilfunk-WAN up) -> DynDNS-Domain wie
+    // bisher. Sonst (z. B. S3 im WLAN hinter dem Router-NAT) -> die aktuelle Underlay-IP:
+    // eine Domain, die auf die oeffentliche Router-IP zeigt, erzeugte tote Configs --
+    // der Handshake starb am Router-NAT, WeirdOS zeigte "rx nie" (Befund 2026-09-30).
+    // Bonus: ohne konfigurierte DynDNS-Domain gibt es jetzt die IP statt eines Fehlers.
+    String epHost = dyndnsDomain;
+    {
+        NetIface wan;
+        const bool publicWan = (netInterfaceById("modem-ecm", wan) && wan.up)
+                            || (netInterfaceById("modem-ppp", wan) && wan.up);
+        if (!publicWan || epHost.length() == 0) {
+            NetIface ul;
+            if (egressResolve(wireguardService.config().underlay, ul) && ul.ip.length())
+                epHost = ul.ip;
+        }
+    }
+    String conf = wireguardService.generateClientConfig(epHost, cname);
     if (conf.length() == 0) {
         res.send(200, "application/json",
                     "{\"ok\":false,\"msg\":\"" + escapeJson(wireguardService.lastError()) + "\"}");
