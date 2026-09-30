@@ -106,6 +106,23 @@ Testbild sauber, stimmt der USB-Pfad und der Fehler liegt im Kamerapfad —
 und umgekehrt. Ohne das Flag ist `camera0` die Vorgabe; ein gespeicherter
 Wert im NVS (`usbdev`/`cam`) gewinnt immer.
 
+**Neu flashen ohne BOOT+RESET.** Jeder USB-Geräte-Build trägt eine CDC-Konsole
+„WeirdOS Console" (Lebensader): über sie schaltet arduino-cli das Board per
+1200-Baud-Touch in den ROM-Bootloader (Board-Option `UploadMode=cdc`; das
+Cam-Tool setzt sie selbst), der PC sieht dann den USB-Serial-JTAG-Port
+(303A:1001) und flasht normal. **Mit USB-Netz (NCM) gibt es diese Konsole auf
+dem S3 nicht**: Full-Speed-Controller haben nur vier IN-Endpunkte, Video (1) +
+NCM (2) + Konsole (2) passen nie zusammen, NCM hat Vorrang. Dann führt der Knopf
+**„Bootloader starten"** in der Weboberfläche (Peripherie › USB-Gerät,
+`POST /usb-bootloader`) in den ROM-Download, oder eben BOOT+RESET. Der P4
+flasht immer über UART0 (CH343), dort stellt sich die Frage nicht.
+
+**USB-Netz (NCM).** Mit dem Baustein USB_NCM meldet sich das Board zusätzlich
+als Netzwerkkarte: der ESP hat 192.168.7.1, der PC bekommt per DHCP eine
+Adresse, die Weboberfläche ist unter http://192.168.7.1 erreichbar. Windows 11
+bringt den NCM-Treiber mit, Windows 10 nicht. Tethering (Internet vom LTE-Modem
+an den PC, nur P4) braucht noch die Einbindung des USB-netif in die Netzzonen.
+
 **S3: kein BOOT+RESET-Hack mehr im Normalfall.** WeirdOS erkennt am
 USB-Serial-JTAG (SOF), ob ein **PC** oder ein **Modem** am USB hängt
 (`usb_serial_jtag_is_connected()`, `weirdos-esp32.ino`). Hängt ein PC dran,

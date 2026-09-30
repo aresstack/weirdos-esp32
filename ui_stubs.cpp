@@ -104,12 +104,22 @@ void renderPeripherie(WeirdUiWriter& w) {
             "und werden nur hardwaregemessen erweitert.</p>"
             "<button class='connect-button' type='submit'>USB-Bereitstellung speichern</button>"
             "</form>"
+#if WEIRDOS_FEATURE_USB_DEVICE && (defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2))
+            // Bootloader ohne Tasten: der USB-Port ist im Betrieb das Geraet. POST /usb-bootloader ->
+            // usb_persist_restart(RESTART_BOOTLOADER) -> ROM-Download am USB-Serial-JTAG-Port (303A:1001).
+            "<p class='cam-hint'><strong>Neu flashen ohne BOOT+RESET:</strong> Der Knopf schickt das Board in den ROM-Bootloader; "
+            "der PC sieht danach einen neuen COM-Port (USB-Serial-JTAG), ueber den das Cam-Tool bzw. arduino-cli normal flasht. "
+            "Bis zum naechsten Start gibt es keine Kamera und kein USB-Netz.</p>"
+            "<button class='connect-button' type='button' id='usb-bl'>Bootloader starten (Flashen ohne Tasten)</button>"
+#endif
             "<div id='usbdev-status' class='info' style='margin-top:8px'><div><span>USB-Geraet</span><span>wird geladen ...</span></div></div>"
             "<script>(function(){var sel=document.querySelectorAll('.usb-exp');sel.forEach(function(s){s.addEventListener('change',function(){if(s.value==='uvc')sel.forEach(function(o){if(o!==s)o.value='off';});});});"
+            "var bl=document.getElementById('usb-bl');if(bl)bl.addEventListener('click',function(){if(!confirm('Board in den ROM-Bootloader schicken? Danach ueber den neuen COM-Port (USB-Serial-JTAG) flashen. Kamera und USB-Netz sind bis zum naechsten Start weg.'))return;bl.disabled=true;fetch('/usb-bootloader',{method:'POST',cache:'no-store'}).then(function(r){return r.json();}).then(function(d){alert(d&&d.msg?d.msg:'ok');}).catch(function(){bl.disabled=false;});});"
             "var el=document.getElementById('usbdev-status');if(!el)return;function row(k,v){return '<div><span>'+k+'</span><span>'+v+'</span></div>';}"
             "function load(){fetch('/usbdev.json?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){"
             "var h=row('Stack',d.active?'laeuft ('+(d.highSpeed?'High-Speed':'Full-Speed')+')':(d.fail?'NICHT gestartet: '+d.fail:'nicht gestartet'))+row('PC',d.mounted?'verbunden (konfiguriert)':'nicht verbunden')"
-            "+row('Stream',d.streaming?('AN, '+d.intervalMs+' ms/Bild'):'aus')+row('Format','MJPEG '+d.width+'x'+d.height)+row('Frames / Bytes',d.frames+' / '+d.bytes)+row('JPEG letzte / max',d.lastLen+' / '+d.maxLen+' B')+row('uebersprungen',d.skips);"
+            "+row('Stream',d.streaming?('AN, '+d.intervalMs+' ms/Bild'):'aus')+row('Format','MJPEG '+d.width+'x'+d.height)+row('Frames / Bytes',d.frames+' / '+d.bytes)+row('JPEG letzte / max',d.lastLen+' / '+d.maxLen+' B')+row('uebersprungen',d.skips)"
+            "+row('Konsole (CDC)',d.cdc?'an':'aus (EP-Budget)')+(d.ncm!==undefined?row('USB-Netz (NCM)',d.ncm?('an, '+(d.ncmIp||'')):'aus'):'');"
             "el.innerHTML=h;}).catch(function(){});}"
             // Socket-Budget (lwIP 16, Web 5): KEIN Abruf beim Laden der App-Seite -- nur solange der Tab offen ist.
             "var tick=function(){var s=document.getElementById('tab-peripherie');if(s&&s.classList.contains('active'))load();};setTimeout(tick,300);setInterval(tick,3000);})();</script>"

@@ -26,4 +26,9 @@ bool active();
 // Feste Geraeteadresse (der PC bekommt .2 per DHCP). Fuer Status/Anzeige.
 const char* deviceIpText();
 
+// Sendewarteschlange abarbeiten: lwIP legt ausgehende Frames im tcpip-Thread ab,
+// tud_network_xmit() laeuft NUR hier -- im USB-Task neben tud_task() (die NCM-Klasse
+// ist nicht thread-sicher). Aus UsbDeviceService::taskLoop() aufrufen.
+void pump();
+
 }} // namespace cam::usbnet

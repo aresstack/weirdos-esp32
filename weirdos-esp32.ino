@@ -480,6 +480,14 @@ bool   wifiOffOnMobile = false;     // WLAN nach erfolgreicher Mobilfunkverbindu
 // Geplanter Neustart (0 = keiner). Wird genutzt, um nach dem Werksreset
 // erst die HTTP-Antwort auszuliefern und dann kontrolliert neu zu starten.
 unsigned long pendingRestartAt = 0;
+// Bootloader-Einstieg per Web-UI (POST /usb-bootloader): nur wo der USB-Port im Betrieb ein Geraet ist.
+#if WEIRDOS_FEATURE_USB_DEVICE && (defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2))
+#define WEIRDOS_USB_BOOTLOADER_ROUTE 1
+#include "esp32-hal-tinyusb.h"   // usb_persist_restart(RESTART_BOOTLOADER)
+#else
+#define WEIRDOS_USB_BOOTLOADER_ROUTE 0
+#endif
+unsigned long pendingBootloaderAt = 0;
 // "Neustart erforderlich": Einstellungen, die erst beim Boot wirken (Video-Transport/Ports, UART-Baud, LAN-Subnetz,
 // Forwarding, AP-Kanal, WLAN-Stack ...). Die UI zeigt dann auf JEDER Seite eine gelbe Box mit Neustart-Knopf,
 // statt den Hinweis in einem Formular zu verstecken; die Konsole meldet es bei "status".
@@ -982,6 +990,14 @@ void loop() {
         pendingRestartAt = millis() + 3000;
     }
 
+#if WEIRDOS_USB_BOOTLOADER_ROUTE
+    if (pendingBootloaderAt != 0 && (long)(millis() - pendingBootloaderAt) >= 0) {
+        pendingBootloaderAt = 0;
+        Serial.println("[USB] Bootloader-Einstieg (usb_persist_restart) ...");
+        delay(50);
+        usb_persist_restart(RESTART_BOOTLOADER);
+    }
+#endif
     if (pendingRestartAt != 0
         && (long)(millis() - pendingRestartAt) >= 0) {
         Serial.println("Restarting after factory reset.");
@@ -2713,6 +2729,7 @@ void handlePlatformSvgSave(WeirdHttpRequest&, WeirdHttpResponse&);       // eige
 void handleUsbPortsJson(WeirdHttpRequest&, WeirdHttpResponse&);
 void handleUsbDevJson(WeirdHttpRequest&, WeirdHttpResponse&);            // USB-Geraet Status
 void handleRestartNow(WeirdHttpRequest&, WeirdHttpResponse&);            // Knopf "Jetzt neu starten"
+void handleUsbBootloader(WeirdHttpRequest&, WeirdHttpResponse&);         // Knopf "Bootloader" (Flashen ohne BOOT+RESET, S2/S3 mit USB-Geraet)
 void handleLogout(WeirdHttpRequest&, WeirdHttpResponse&);
 void handleWanPolicySave(WeirdHttpRequest&, WeirdHttpResponse&);
 void handleWanPolicyJson(WeirdHttpRequest&, WeirdHttpResponse&);
@@ -2866,6 +2883,7 @@ void startWebServer() {
     g_web.route(HttpMethod::GET, "/sysinfo.json", requireSession(handleSysinfoJson, AuthFail::Json));
     g_web.route(HttpMethod::GET,  "/restart-required.json", requireSession(handleRestartRequiredJson, AuthFail::Json));   // gelbe Box (Poll)
     g_web.route(HttpMethod::POST, "/restart",               requireSession(handleRestartNow, AuthFail::Json));            // "Jetzt neu starten"
+    g_web.route(HttpMethod::POST, "/usb-bootloader",        requireSession(handleUsbBootloader, AuthFail::Json));         // "Bootloader": ROM-Download am USB-Serial-JTAG-Port
     g_web.route(HttpMethod::POST, "/usbdev-save",           requireSession(handleUsbDevSave, AuthFail::Page));            // Einrichtung > Setup > USB-Geraet (wirkt nach Neustart)
     g_web.route(HttpMethod::GET,  "/usbdev.json",           requireSession(handleUsbDevJson, AuthFail::Json));            // Status UVC (Host/Stream/Frames)
     g_web.route(HttpMethod::POST, "/usbports-save",         requireSession(handleUsbPortsSave, AuthFail::Page));          // USB-Port-Mapping des Boards (wirkt nach Neustart)
@@ -5612,6 +5630,20 @@ void handleRestartNow(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     logEvent("Neustart ueber die Web-UI (gelbe Box)");
     res.send(200, "application/json", "{\"ok\":true,\"msg\":\"Neustart in 2 s\"}");
     pendingRestartAt = millis() + 2000;
+}
+// Bootloader-Einstieg ohne Tasten: in einem USB-Geraete-Build (Webcam/USB-Netz) ist der USB-Port das
+// Geraet, kein Programmierport. usb_persist_restart(RESTART_BOOTLOADER) (Core, esp32-hal-tinyusb)
+// schaltet den PHY auf USB-Serial-JTAG und startet in den ROM-Download -> der PC sieht 303A:1001,
+// arduino-cli/esptool flashen ganz normal. Nur S2/S3 (der P4 flasht ueber UART0/CH343).
+void handleUsbBootloader(WeirdHttpRequest& req, WeirdHttpResponse& res) {
+    (void)req; resNoCache(res);
+#if WEIRDOS_USB_BOOTLOADER_ROUTE
+    logEvent("Bootloader ueber die Web-UI: ROM-Download am USB-Serial-JTAG-Port (303A:1001) in 1 s");
+    res.send(200, "application/json", "{\"ok\":true,\"msg\":\"Bootloader in 1 s: danach ueber den neuen COM-Port (USB-Serial-JTAG) flashen\"}");
+    pendingBootloaderAt = millis() + 1000;
+#else
+    res.send(200, "application/json", "{\"ok\":false,\"msg\":\"Auf diesem Board nicht noetig/nicht verfuegbar (Flash ueber UART bzw. Programmierport).\"}");
+#endif
 }
 void handleUartSave(WeirdHttpRequest& req, WeirdHttpResponse& res) {
     if (req.hasArg("baud")) {

@@ -76,7 +76,7 @@ ohne Implementierung (Vorgabe 0).
 |---|---|---|---|
 | `NET` | IP-Stack, `network_registry`, Egress-/WAN-Policy | — | **wired** |
 | `MODEM` | EC200A: USB, AT, PPP/ECM-Datenpfad, SIM, Netzzeit | USB_HOST, NET | **wired** |
-| `USB_NCM` | ESP als USB-Netzwerkadapter am PC (Downlink) | USB_DEVICE, NET | **planned** |
+| `USB_NCM` | ESP als USB-Netzwerkadapter am PC (CDC-NCM, `usb_net_service`: 192.168.7.1 + DHCP). Weboberfläche/OTA über USB; Tethering-Routing (Zonen) noch offen. S3-EP-Budget: Video + NCM verdrängen die CDC-Konsole | USB_DEVICE, NET | **wired** (Laufzeit ungeprüft) |
 | `ROUTER` | Netzzonen: Forwarding, NAT, Policies, lwIP-Hooks | NET, **PSRAM** | **wired** |
 | `WIREGUARD` | WireGuard Server/Client (eigene Krypto vendored) | NET | **wired** |
 | `IPSEC` | IKEv2/IPsec-Client (WeirdIKE) | NET, CRYPTO_AES, **PSRAM** | **wired** |

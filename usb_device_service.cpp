@@ -166,9 +166,11 @@ static volatile bool s_audioStreaming = false;
 #define NCM_EP_OUT    0x04
 #define STR_NCM       6
 #define STR_NCM_MAC   7
-static bool s_ncmOn = false;             // USB-Netz aktiv und Deskriptor traegt die NCM-Funktion
+static bool s_ncmOn = false;             // USB-Netz (netif + DHCP) hochgefahren
+static bool s_ncmInDesc = false;         // ... und der Deskriptor traegt die NCM-Funktion (EP-Budget)
 static char s_ncmMacStr[13] = "025745495245";  // iMACAddress: 12 Hex, Host-Seite
 #endif
+static bool s_cdcInDesc = false;         // CDC-Konsole (Lebensader) im Deskriptor (EP-Budget)
 #define UVC_BULK_MPS_FS 64          // Bulk-Paket Full-Speed (USB 2.0, 5.8.3) -- S3, P4-FSLS
 #define UVC_BULK_MPS_HS 512         // Bulk-Paket High-Speed -- P4-UTMI
 #define UVC_CLOCK_HZ  48000000
@@ -290,53 +292,59 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
     const uint8_t  audioItf = 0;
 #endif
 
-    // CDC-Konsole = LEBENSADER, immer dabei: die USBCDC-Callbacks des Cores
-    // (USBCDC.cpp, via CDCOnBoot=cdc fest gelinkt) tragen den Bootloader-Einstieg
-    // -- 1200-Baud-Touch und die esptool-DTR/RTS-Sequenz -> usb_persist_restart
-    // (RESTART_BOOTLOADER). Ohne diese Schnittstelle ist ein OTG-Build nur noch
-    // mit BOOT+RESET an den Tasten flashbar. Bonus: Serial-Log am PC.
-    //
-    // IN-Endpunkte sind knapp: der S3 hat OTG_NUM_IN_EPS=5 -> nutzbar sind EP1..EP4
-    // (EP0 = Control). Vergabe LAUFZEITABHAENGIG in fester
-    // Prioritaet: Video 0x81, Audio 0x82 (wenn Mikro), dann CDC (Notify+Daten),
-    // dann NCM (Notify+Daten) NUR wenn noch zwei frei sind -- sonst faellt NCM
-    // fuer diesen Lauf weg (Log), die Lebensader faellt nie.
-    // Erster freier IN-Endpunkt: EP1 (0x81) nur mit Video, EP2 (0x82) nur mit Audio.
+    // IN-Endpunkte sind knapp: die FS-Controller (S3, P4-FSLS) haben OTG_NUM_IN_EPS=5 ->
+    // nutzbar EP1..EP4 (EP0 = Control); der HS-Controller des P4 hat 8 -> EP1..EP7.
+    // Vergabe LAUFZEITABHAENGIG in fester Prioritaet: Video 0x81, Audio 0x82 (wenn Mikro
+    // erkannt), dann USB-Netz NCM (Notify+Daten), dann die CDC-Konsole (Notify+Daten).
+    // Was nicht mehr passt, faellt fuer diesen Lauf weg (Log + Status).
+    //   Warum NCM VOR der Konsole: mit USB-Netz uebernimmt die Weboberflaeche ueber
+    //   192.168.7.1 Einrichtung, OTA UND den Bootloader-Einstieg (POST /usb-bootloader);
+    //   und auf dem S3 passen Video + NCM + Konsole (1+2+2 = 5 IN-EPs) NIE zusammen.
+    // CDC-Konsole = LEBENSADER ohne USB-Netz: 1200-Baud-Touch und die esptool-DTR/RTS-
+    // Sequenz -> usb_persist_restart(RESTART_BOOTLOADER) -> ROM am USB-Serial-JTAG-Port
+    // (303A:1001) -> flashbar am selben Kabel ohne BOOT+RESET. Bonus: Serial-Log am PC.
+    const uint8_t maxIn = s_highSpeed ? 7 : 4;
     uint8_t nextIn = (uint8_t)(1 + (WEIRDOS_FEATURE_UVC ? 1 : 0) + (audioItf ? 1 : 0));
-    const uint8_t cdcNotifEp = (uint8_t)(0x80 | nextIn++);
-    const uint8_t cdcDataNum = nextIn++;
-    const uint8_t cdcItf = (uint8_t)(ITF_COUNT + audioItf);
-    const uint8_t cdc[] = {
-        TUD_CDC_DESCRIPTOR(cdcItf, STR_CDC, cdcNotifEp, 16,
-                           cdcDataNum, (uint8_t)(0x80 | cdcDataNum), bulkMps)
-    };
+    uint8_t itf = (uint8_t)(ITF_COUNT + audioItf);
 
 #if WEIRDOS_UNC_SUPPORTED
     bool withNcm = s_ncmOn;
-    // NCM braucht ZWEI IN-EPs (Notify nextIn, Daten nextIn+1); hoechster gueltiger
-    // IN-EP ist 4. Passt das nicht (z.B. Video+Audio+Konsole belegen schon EP1..4),
-    // faellt NCM fuer diesen Lauf weg -- die Lebensader bleibt.
-    if (withNcm && (nextIn + 1) > 4) {
+    if (withNcm && (nextIn + 1) > maxIn) {
         withNcm = false;
-        Serial.println("USB-Device: IN-Endpunkte voll (Video+Audio+Konsole) -> NCM fuer diesen Lauf aus");
+        Serial.println("USB-Device: IN-Endpunkte voll (Video+Audio) -> USB-Netz (NCM) fuer diesen Lauf aus");
     }
     const uint8_t ncmNotifEp = (uint8_t)(0x80 | nextIn);
     const uint8_t ncmDataNum = (uint8_t)(nextIn + 1);
-    const uint8_t ncmComm = (uint8_t)(cdcItf + 2);
+    const uint8_t ncmComm    = itf;
+    if (withNcm) { nextIn = (uint8_t)(nextIn + 2); itf = (uint8_t)(itf + 2); }
     const uint8_t ncm[] = {
         TUD_CDC_NCM_DESCRIPTOR(ncmComm, STR_NCM, STR_NCM_MAC, ncmNotifEp, 64,
                                ncmDataNum, (uint8_t)(0x80 | ncmDataNum), bulkMps, 1514, 16, 0)
     };
     const uint16_t ncmLen = withNcm ? (uint16_t)sizeof(ncm) : 0;
-    const uint8_t  ncmItf = withNcm ? 2 : 0;
+    s_ncmInDesc = withNcm;
 #else
     const uint16_t ncmLen = 0;
-    const uint8_t  ncmItf = 0;
 #endif
 
-    const uint8_t  itfTotal = (uint8_t)(ITF_COUNT + audioItf + 2 /*CDC*/ + ncmItf);
-    const uint16_t total = TUD_CONFIG_DESC_LEN + videoLen
-                         + audioLen + (uint16_t)sizeof(cdc) + ncmLen;
+    bool withCdc = true;
+    if ((nextIn + 1) > maxIn) {
+        withCdc = false;
+        Serial.println("USB-Device: IN-Endpunkte voll -> CDC-Konsole fuer diesen Lauf aus (Bootloader/Update ueber die Weboberflaeche am USB-Netz)");
+    }
+    const uint8_t cdcNotifEp = (uint8_t)(0x80 | nextIn);
+    const uint8_t cdcDataNum = (uint8_t)(nextIn + 1);
+    const uint8_t cdcItf     = itf;
+    if (withCdc) { nextIn = (uint8_t)(nextIn + 2); itf = (uint8_t)(itf + 2); }
+    const uint8_t cdc[] = {
+        TUD_CDC_DESCRIPTOR(cdcItf, STR_CDC, cdcNotifEp, 16,
+                           cdcDataNum, (uint8_t)(0x80 | cdcDataNum), bulkMps)
+    };
+    const uint16_t cdcLen = withCdc ? (uint16_t)sizeof(cdc) : 0;
+    s_cdcInDesc = withCdc;
+
+    const uint8_t  itfTotal = itf;
+    const uint16_t total = TUD_CONFIG_DESC_LEN + videoLen + audioLen + ncmLen + cdcLen;
     // Extern versorgt -> SELF_POWERED, 100 mA (VBUS-Sense gibt es nicht -> siehe Header/USB-DEVICE.md)
     const uint8_t head[] = { TUD_CONFIG_DESCRIPTOR(1, itfTotal, 0, total, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100) };
     uint8_t* d = (uint8_t*)malloc(total);
@@ -362,10 +370,10 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
 #if WEIRDOS_UAC_SUPPORTED
     if (withAudio) { memcpy(p, audio, sizeof(audio)); p += sizeof(audio); }
 #endif
-    memcpy(p, cdc, sizeof(cdc)); p += sizeof(cdc);   // Lebensader, immer
 #if WEIRDOS_UNC_SUPPORTED
     if (withNcm) { memcpy(p, ncm, sizeof(ncm)); p += sizeof(ncm); }
 #endif
+    if (withCdc) { memcpy(p, cdc, sizeof(cdc)); p += sizeof(cdc); }   // Reihenfolge = Interface-Nummern
     return true;
 }
 
@@ -585,6 +593,9 @@ void UsbDeviceService::taskLoop() {
 #if WEIRDOS_UAC_SUPPORTED
         pumpAudio();
 #endif
+#if WEIRDOS_UNC_SUPPORTED
+        cam::usbnet::pump();      // Ethernet-Frames aus lwIP an NCM -- im USB-Task, nicht im tcpip-Thread
+#endif
     }
 }
 
@@ -657,12 +668,11 @@ bool UsbDeviceService::begin() {
     else { Serial.println("USB-Device: kein Mikrofon -> nur Video"); }
 #endif
 #if WEIRDOS_UNC_SUPPORTED
-    // USB-Netzadapter hochbringen (netif + DHCP). iMACAddress-String aus der
-    // Geraete-MAC ableiten (Host-Seite = device ^ 1 im letzten Byte).
-    {
-        uint8_t m[6]; memcpy(m, tud_network_mac_address, 6); m[5] ^= 0x01;
-        for (int i = 0; i < 6; i++) snprintf(s_ncmMacStr + i * 2, 3, "%02X", m[i]);
-    }
+    // USB-Netzadapter hochbringen (netif + DHCP). iMACAddress im Deskriptor ist die
+    // MAC, die der PC-Adapter bekommt = tud_network_mac_address UNVERAENDERT; das
+    // netif des ESP nimmt ^1 im letzten Byte (usb_net_service). Beide gleich waere
+    // ein Ethernet mit zwei identischen Adressen (ARP/Weiterleitung kaputt).
+    for (int i = 0; i < 6; i++) snprintf(s_ncmMacStr + i * 2, 3, "%02X", tud_network_mac_address[i]);
     s_ncmOn = cam::usbnet::begin();
     if (s_ncmOn) { Serial.printf("USB-Device: USB-Netz aktiv (%s)\n", cam::usbnet::deviceIpText()); logEvent(String("NCM: USB-Netz aktiv (") + cam::usbnet::deviceIpText() + ")"); }
     else { Serial.println("USB-Device: USB-Netz nicht gestartet -> ohne NCM"); }
@@ -704,6 +714,11 @@ String UsbDeviceService::statusText() {
     if (started_) {
         t += String("  Host: ") + (s_mounted ? "konfiguriert" : "nicht verbunden") + (s_suspended ? " (suspend)" : "") + "  Stream: " + (s_streaming ? "AN" : "aus") + "  Intervall " + s_intervalMs + " ms  " + (s_highSpeed ? "HS" : "FS") + " rhport " + s_rhport + "  Transport Bulk, Payload " + s_payloadMax + " B\r\n";
         t += String("  Format: MJPEG ") + s_w + "x" + s_h + "  Frames " + s_frames + "  Bytes " + s_bytes + "  letzte/max JPEG " + s_lastLen + "/" + s_maxLen + " B  uebersprungen " + s_skipsNoFrame + "\r\n";
+        t += String("  Composite: Konsole(CDC) ") + (s_cdcInDesc ? "an" : "aus (EP-Budget)")
+#if WEIRDOS_UNC_SUPPORTED
+           + "  USB-Netz(NCM) " + (s_ncmInDesc ? (String("an ") + cam::usbnet::deviceIpText()) : (s_ncmOn ? "aus (EP-Budget)" : "aus"))
+#endif
+           + "\r\n";
     }
     return t;
 }
@@ -712,7 +727,12 @@ String UsbDeviceService::statusJson() {
            ",\"active\":" + (started_ ? "true" : "false") + ",\"fail\":\"" + escapeJson(fail_) + "\"" +
            ",\"mounted\":" + (s_mounted ? "true" : "false") + ",\"streaming\":" + (s_streaming ? "true" : "false") + ",\"intervalMs\":" + s_intervalMs +
            ",\"highSpeed\":" + (s_highSpeed ? "true" : "false") + ",\"transport\":\"bulk\",\"payloadMax\":" + s_payloadMax + ",\"width\":" + s_w + ",\"height\":" + s_h + ",\"frames\":" + s_frames + ",\"bytes\":" + s_bytes +
-           ",\"lastLen\":" + s_lastLen + ",\"maxLen\":" + s_maxLen + ",\"skips\":" + s_skipsNoFrame + "}";
+           ",\"lastLen\":" + s_lastLen + ",\"maxLen\":" + s_maxLen + ",\"skips\":" + s_skipsNoFrame +
+           ",\"cdc\":" + (s_cdcInDesc ? "true" : "false") +
+#if WEIRDOS_UNC_SUPPORTED
+           ",\"ncm\":" + (s_ncmInDesc ? "true" : "false") + ",\"ncmIp\":\"" + cam::usbnet::deviceIpText() + "\"" +
+#endif
+           "}";
 }
 #else
 static const char* kNotBuilt = "im Build deaktiviert (Feature-Flag WEIRDOS_USB_DEVICE=1 setzen; TinyUSB kostet ~48 KB internen RAM)";

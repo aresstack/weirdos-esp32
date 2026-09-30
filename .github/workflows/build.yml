@@ -102,6 +102,8 @@ jobs:
           # Webcam + USB-Netzwerkadapter (NCM): Konfiguration/OTA ueber USB ohne WLAN.
           # Braucht NET (lwIP) + HTTP/WEBUI. Sichert usb_net_service (netif+DHCP) + den
           # NCM-Composite-Deskriptor. S3 = ein Port (nur Geraet), P4 ebenso ohne Modem.
+          # EP-Budget S3 (EP1..4): Video 1 + NCM 2 = 3 -> die CDC-Konsole faellt zur Laufzeit
+          # weg; Bootloader/Update dann ueber die Weboberflaeche (POST /usb-bootloader, OTA).
           - name: S3 webcam + USB-Netz (NCM, Config ueber USB)
             fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=default,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
             flags: "-DWEIRDOS_FEATURE_WIFI=0 -DWEIRDOS_FEATURE_BLE=0 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0 -DWEIRDOS_FEATURE_RTSP=0 -DWEIRDOS_FEATURE_WIREGUARD=0 -DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1 -DWEIRDOS_FEATURE_USB_NCM=1"
