@@ -10,7 +10,9 @@
 // WeirdOS nutzt fuer das Modem den IDF-Host, nicht TinyUSB-Host.
 //
 // Semantik der Stubs: init/reset = nichts; deinit = true; open = 0 (Interface nicht uebernommen -> usbd
-// probiert den naechsten Treiber, z. B. video); control/xfer = false. Nur die Video-Klasse bleibt echt.
+// probiert den naechsten Treiber, z. B. video); control/xfer = false. Nur die Video-Klasse bleibt echt --
+// und auch die kommt nicht aus dem Archiv, sondern aus uvc_video_device.c (derselbe Mechanismus: alle
+// videod_*/tud_video_*-Symbole im Sketch -> video_device.o der Bibliothek wird nie gezogen).
 // Kompiliert immer mit; ohne WEIRDOS_USB_DEVICE wird usbd nicht gelinkt und die Stubs bleiben unbenutzt.
 // ============================================================================
 #include "soc/soc_caps.h"

@@ -28,10 +28,15 @@
 // verdrahtet) -> der Pull-up liegt ab Boot an; Hotplug wird ueber Bus-Reset/SOF erkannt. Das ist ein
 // dokumentierter Abstand zur USB-Spezifikation fuer Self-Powered-Geraete (siehe USB-DEVICE.md).
 //
-// Stack: TinyUSB aus den gelinkten Arduino-Libs (CFG_TUD_VIDEO=1). Eigener PHY-/rhport-Init, NIE
-// USB.begin() des Cores (der nimmt auf dem P4 rhport 1 = HS = Modem-Controller). Die Deskriptor-Callbacks
-// des Cores sind __weak und werden hier ueberschrieben; tud_mount_cb & Co. definiert der Core stark -> wir
-// nutzen sie nicht (Zustand per tud_mounted()).
+// Stack: usbd + dcd_dwc2 aus den gelinkten Arduino-Libs; die VIDEOKLASSE kommt aus uvc_video_device.c
+// (eigene Uebersetzungseinheit: Bulk-Endpunkt, 4-KB-Payloads -- die Bibliotheksklasse sendet auf dem S3
+// 64-Byte-ISO-Payloads = ~62 KB/s und zerrissene Bilder). Eigener PHY-/rhport-Init, NIE USB.begin() des
+// Cores (der nimmt auf dem P4 rhport 1 = HS = Modem-Controller). Die Deskriptor-Callbacks des Cores sind
+// __weak und werden hier ueberschrieben; tud_mount_cb & Co. definiert der Core stark -> wir nutzen sie
+// nicht (Zustand per tud_mounted()).
+// Transport: MJPEG ueber BULK (UVC 1.5, ein Alternate Setting). Ein SVGA-JPEG (40-70 KB) braucht am
+// Full-Speed-Port ~50-100 ms -> 10-20 fps; VGA entsprechend mehr. Isochron waere am S3 auf 1 Paket je
+// Millisekunde begrenzt.
 // ============================================================================
 #pragma once
 #include <Arduino.h>
@@ -39,7 +44,7 @@
 struct UsbDeviceConfig {
     String  port;        // Port-ID aus dem Board-Mapping (usb_ports.*): "USB0".."USB2"
     String  cam;         // UVC-Export: "" (aus) | "camera0" | "testpattern0"
-    uint8_t fps = 10;    // angebotene Bildrate 1..30 (Angebot; real zaehlt die USB-Bandbreite)
+    uint8_t fps = 15;    // angebotene Bildrate 1..30 (Angebot; real zaehlt die USB-Bandbreite: FS-Bulk ~1 MB/s)
 };
 
 class UsbDeviceService {

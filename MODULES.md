@@ -89,7 +89,7 @@ ohne Implementierung (Vorgabe 0).
 | `VIDEO_HTTP` | MJPEG-Streamserver (Port 81) + `/video.mp4`. Das Einzelbild `/capture` gehört zu CAMERA (+HTTP), damit auch ein RTSP-only-Gerät Snapshots liefert | HTTP | **wired** |
 | `RTSP` | RTSP/RTP-Server (MJPEG; H.264-Mount mit H264) | NET | **wired** |
 | `H264` | HW-Encoder + PPA + fMP4 + interne RAM-Reserve (die Boot-Reserve entfällt damit auch auf dem S3, der keinen Encoder hat) | P4 | **wired** |
-| `UVC` | Webcam am PC | USB_DEVICE | **wired** (heute: Testbild; echte Kamera folgt) |
+| `UVC` | Webcam am PC — MJPEG über **Bulk** aus der eigenen TinyUSB-Videoklasse `uvc_video_device.c` (die Klasse der Core-Lib sendet auf dem S3 64-Byte-ISO-Payloads: ~62 KB/s, zerrissene Bilder) | USB_DEVICE | **wired** (Kamera per Vorgabe, Testbild wählbar) |
 
 ### 4.4 Bedienung / Verwaltung
 
@@ -235,7 +235,9 @@ Was die Zeilen sagen:
 - **Modem weg (no-modem):** −167 KB Flash, −3 KB statisches RAM (EC200A-Treiber, PPP, ECM,
   SIM, USB-Host-Recovery).
 - **USB-Webcam (USB_DEVICE + UVC an):** +79 KB Flash und +32 KB statisches RAM gegenüber no-modem — die
-  TinyUSB-Puffer, die der Baustein USB_DEVICE deshalb nie per Vorgabe mitbringt.
+  TinyUSB-Puffer, die der Baustein USB_DEVICE deshalb nie per Vorgabe mitbringt. Seit dem Bulk-Transport
+  kommen ~4 KB statisches RAM dazu (der eigene Payload-Puffer der Videoklasse, `WEIRDOS_UVC_PAYLOAD_MAX`
+  = 4064 B statt der 64 B der Bibliothek) — der Preis für ~1 MB/s statt ~62 KB/s am Full-Speed-Port.
 - **IP-Stack weg (webcam-only):** das Profil „USB-Webcam" wortwörtlich — CAMERA, USB_DEVICE,
   UVC und sonst nichts. **527 KB statt 2 573 KB Flash (−80 %), 77 KB statt 131 KB statisches
   RAM** gegenüber der Webcam mit vollem Netz-Unterbau; gegenüber dem Vollausbau fehlen

@@ -90,6 +90,16 @@ und **PSRAM immer an** (der Core listet „Disabled" als Erstes — dann bleibt 
 Kamera aus). Ein frisch geflashtes Webcam-Board exportiert die Kamera ohne
 weitere Einrichtung (`usbdev`-Vorgabe `camera0`).
 
+**Transport: Bulk statt isochron.** Die TinyUSB-Videoklasse der Core-Bibliothek
+ist auf dem S3 mit 64-Byte-Payloads gebaut. Isochron heißt am Full-Speed-Port
+ein Paket pro Millisekunde, also ~62 KB/s — ein SVGA-JPEG braucht damit ~1 s,
+und der ISO-Pfad der DWC2 verliert bei spätem Nachlegen Pakete (Bild oben
+Müll, unten korrekt). WeirdOS bringt die Videoklasse deshalb selbst mit
+(`uvc_video_device.c`, TinyUSB-Quelle, MIT) und streamt MJPEG über einen
+**Bulk-Endpunkt mit 4-KB-Payloads**: ~1 MB/s am S3, SVGA mit 10–20 fps, VGA
+schneller. Angeboten werden 15 fps (`usbdev`-Einstellung `fps`); die reale Rate
+ergibt sich aus JPEG-Größe und USB-Durchsatz.
+
 **S3: kein BOOT+RESET-Hack mehr im Normalfall.** WeirdOS erkennt am
 USB-Serial-JTAG (SOF), ob ein **PC** oder ein **Modem** am USB hängt
 (`usb_serial_jtag_is_connected()`, `weirdos-esp32.ino`). Hängt ein PC dran,

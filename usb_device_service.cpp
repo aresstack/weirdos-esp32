@@ -15,6 +15,8 @@
 // statisch) statt der Core-Bibliothek -- siehe USB-DEVICE.md.
 // Seit dem Schalterkasten ist der Key WEIRDOS_FEATURE_USB_DEVICE (weirdos_features.h); der alte
 // Name WEIRDOS_USB_DEVICE bleibt dort als Alias definiert, damit dieser Code unveraendert gilt.
+// Videoklasse: NICHT die der Bibliothek (64-Byte-ISO-Payloads auf dem S3 = ~62 KB/s und Bildmuell),
+// sondern uvc_video_device.c (eigene Uebersetzungseinheit, Bulk, 4-KB-Payloads) -- siehe dort.
 #include "weirdos_features.h"
 // UVC ist heute die einzige Geraeteklasse: ohne den Baustein UVC gibt es nichts zu exportieren, also
 // auch keinen TinyUSB-Start (USB_DEVICE = Stack, UVC = Kamera-Klasse; USB_NCM folgt als eigene Klasse).
@@ -64,7 +66,7 @@ void UsbDeviceService::loadConfig() {
     Preferences p; p.begin("usbdev", true);
     cfg_.port = p.getString("port", defaultPort());
     cfg_.cam  = p.getString("cam", "");
-    cfg_.fps  = (uint8_t)p.getUChar("fps", 10);
+    cfg_.fps  = (uint8_t)p.getUChar("fps", 15);   // Angebot; Bulk schafft SVGA mit ~10-20 fps, VGA mehr
     // Migration der ersten Fassung (uvc/src): uvc=1 -> Export je nach Quelle
     if (!p.isKey("cam") && p.getBool("uvc", false)) cfg_.cam = (p.getString("src", "camera") == "test") ? "testpattern0" : "camera0";
 #if WEIRDOS_USBDEV_SUPPORTED
@@ -96,7 +98,8 @@ String UsbDeviceService::saveConfig(const UsbDeviceConfig& c) {
 enum { ITF_VC = 0, ITF_VS = 1, ITF_COUNT = 2 };
 enum { STR_LANG = 0, STR_MANUF = 1, STR_PRODUCT = 2, STR_SERIAL = 3, STR_UVC = 4 };
 #define UVC_EP_IN     0x81
-#define UVC_EP_SIZE   CFG_TUD_VIDEO_STREAMING_EP_BUFSIZE   // Puffer der gelinkten Lib (P4: 512, S3: 64); FS-ISO max 1023
+#define UVC_BULK_MPS_FS 64          // Bulk-Paket Full-Speed (USB 2.0, 5.8.3) -- S3, P4-FSLS
+#define UVC_BULK_MPS_HS 512         // Bulk-Paket High-Speed -- P4-UTMI
 #define UVC_CLOCK_HZ  48000000
 #define UVC_VID       0x1209        // pid.codes (Open-Source-VID)
 #define UVC_PID       0x0001        // pid.codes TEST-PID -- ausdruecklich fuer interne/Testgeraete freigegeben
@@ -104,7 +107,9 @@ enum { STR_LANG = 0, STR_MANUF = 1, STR_PRODUCT = 2, STR_SERIAL = 3, STR_UVC = 4
 static usb_phy_handle_t s_phy = nullptr;
 static uint8_t   s_rhport = 0;
 static bool      s_highSpeed = false;
-static uint8_t*  s_cfgDesc = nullptr; static uint16_t s_cfgLen = 0;
+static uint8_t*  s_cfgDesc = nullptr; static uint16_t s_cfgLen = 0;       // Full-Speed-Konfiguration (Bulk 64)
+static uint8_t*  s_cfgDescHs = nullptr; static uint16_t s_cfgLenHs = 0;   // High-Speed-Konfiguration (Bulk 512), nur HS-Port
+static uint32_t  s_payloadMax = 0;                                        // vom Host bestaetigte dwMaxPayloadTransferSize
 static tusb_desc_device_t s_devDesc;
 static tusb_desc_device_qualifier_t s_qualDesc;
 static char      s_serial[20] = "0";
@@ -122,10 +127,14 @@ static uint8_t*  s_buf = nullptr; static size_t s_cap = 0; static uint32_t s_seq
 static bool      s_camConsumer = false;
 static bool      s_srcTest = true;
 
-static bool buildDescriptors(uint16_t w, uint16_t h, uint8_t fps) {
-    s_w = w; s_h = h;
-    s_maxFrame = (uint32_t)w * h * 2;            // MJPEG: grosszuegig, Windows reserviert diesen Puffer
-    if (s_maxFrame > 1024UL * 1024UL) s_maxFrame = 1024UL * 1024UL;
+// Eine Konfiguration je Bus-Geschwindigkeit: der Bulk-Endpunkt hat 64 B (FS) bzw. 512 B (HS) wMaxPacketSize.
+// Transport = BULK, nicht isochron: (1) Full-Speed-ISO ist 1 Paket je 1-ms-Rahmen -- mit dem 64-B-Puffer der
+// Core-Bibliothek ~62 KB/s, ein SVGA-JPEG braucht ~1 s; (2) der ISO-IN-Pfad der DWC2 (Rahmen-Paritaet) verliert
+// Pakete, wenn der Task spaet nachlegt -> zerrissene JPEGs (Hardware-Befund 2026-09-30). Bulk laeuft so schnell,
+// wie der Host abholt (FS ~1 MB/s), ohne Paritaet, und die eigene Videoklasse (uvc_video_device.c) schickt 4-KB-
+// Payloads am Stueck aus der ISR. Bulk-UVC hat GENAU EIN Alternate Setting (0) mit dem Endpunkt darin; der
+// Host startet den Stream mit COMMIT und liest -- kein SET_INTERFACE(1) wie bei ISO.
+static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps, uint8_t** outDesc, uint16_t* outLen) {
     const uint32_t interval = 10000000UL / fps;  // 100-ns-Einheiten
     const uint32_t minbr = (uint32_t)w * h * 16UL, maxbr = (uint32_t)w * h * 16UL * fps;
     const uint8_t video[] = {
@@ -134,23 +143,31 @@ static bool buildDescriptors(uint16_t w, uint16_t h, uint8_t fps) {
         TUD_VIDEO_DESC_CS_VC(0x0150, TUD_VIDEO_DESC_CAMERA_TERM_LEN + TUD_VIDEO_DESC_OUTPUT_TERM_LEN, UVC_CLOCK_HZ, ITF_VS),
         TUD_VIDEO_DESC_CAMERA_TERM(1, 0, 0, 0, 0, 0, 0),
         TUD_VIDEO_DESC_OUTPUT_TERM(2, VIDEO_TT_STREAMING, 0, 1, 0),
-        TUD_VIDEO_DESC_STD_VS(ITF_VS, 0, 0, STR_UVC),
+        TUD_VIDEO_DESC_STD_VS(ITF_VS, 0, 1, STR_UVC),   // alt 0 MIT dem Bulk-Endpunkt (kein alt 1)
         TUD_VIDEO_DESC_CS_VS_INPUT(1, TUD_VIDEO_DESC_CS_VS_FMT_MJPEG_LEN + TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT_LEN + TUD_VIDEO_DESC_CS_VS_COLOR_MATCHING_LEN,
                                    UVC_EP_IN, 0, 2, 0, 0, 0, 0),
         TUD_VIDEO_DESC_CS_VS_FMT_MJPEG(1, 1, 0, 1, 0, 0, 0, 0),
         TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT(1, 0, w, h, minbr, maxbr, s_maxFrame, interval, interval, interval, interval),
         TUD_VIDEO_DESC_CS_VS_COLOR_MATCHING(VIDEO_COLOR_PRIMARIES_BT709, VIDEO_COLOR_XFER_CH_BT709, VIDEO_COLOR_COEF_SMPTE170M),
-        TUD_VIDEO_DESC_STD_VS(ITF_VS, 1, 1, STR_UVC),
-        TUD_VIDEO_DESC_EP_ISO(UVC_EP_IN, UVC_EP_SIZE, 1)
+        TUD_VIDEO_DESC_EP_BULK(UVC_EP_IN, bulkMps, 0)
     };
     const uint16_t total = TUD_CONFIG_DESC_LEN + sizeof(video);
     // Extern versorgt -> SELF_POWERED, 100 mA (VBUS-Sense gibt es nicht -> siehe Header/USB-DEVICE.md)
     const uint8_t head[] = { TUD_CONFIG_DESCRIPTOR(1, ITF_COUNT, 0, total, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100) };
     uint8_t* d = (uint8_t*)malloc(total);
     if (!d) return false;
-    if (s_cfgDesc) free(s_cfgDesc);
-    s_cfgDesc = d; s_cfgLen = total;
-    memcpy(s_cfgDesc, head, sizeof(head)); memcpy(s_cfgDesc + sizeof(head), video, sizeof(video));
+    if (*outDesc) free(*outDesc);
+    *outDesc = d; *outLen = total;
+    memcpy(d, head, sizeof(head)); memcpy(d + sizeof(head), video, sizeof(video));
+    return true;
+}
+
+static bool buildDescriptors(uint16_t w, uint16_t h, uint8_t fps) {
+    s_w = w; s_h = h;
+    s_maxFrame = (uint32_t)w * h * 2;            // MJPEG: grosszuegig, Windows reserviert diesen Puffer
+    if (s_maxFrame > 1024UL * 1024UL) s_maxFrame = 1024UL * 1024UL;
+    if (!buildOneConfig(w, h, fps, UVC_BULK_MPS_FS, &s_cfgDesc, &s_cfgLen)) return false;
+    if (s_highSpeed && !buildOneConfig(w, h, fps, UVC_BULK_MPS_HS, &s_cfgDescHs, &s_cfgLenHs)) return false;
 
     memset(&s_devDesc, 0, sizeof(s_devDesc));
     s_devDesc.bLength = sizeof(tusb_desc_device_t); s_devDesc.bDescriptorType = TUSB_DESC_DEVICE;
@@ -172,9 +189,12 @@ static bool buildDescriptors(uint16_t w, uint16_t h, uint8_t fps) {
 
 // ---- TinyUSB-Deskriptor-Callbacks (ueberschreiben die __weak-Versionen des Arduino-Cores) ----------
 extern "C" uint8_t const* tud_descriptor_device_cb(void) { return (uint8_t const*)&s_devDesc; }
-extern "C" uint8_t const* tud_descriptor_configuration_cb(uint8_t index) { (void)index; return s_cfgDesc; }
+// Konfiguration je ausgehandelter Geschwindigkeit: HS-Port am HS-Host -> Bulk 512, sonst Bulk 64. Die
+// "andere" Geschwindigkeit liefert das jeweils andere Exemplar (nur ein HS-Port hat zwei).
+static uint8_t const* cfgForSpeed(bool high) { return (high && s_cfgDescHs) ? s_cfgDescHs : s_cfgDesc; }
+extern "C" uint8_t const* tud_descriptor_configuration_cb(uint8_t index) { (void)index; return cfgForSpeed(tud_speed_get() == TUSB_SPEED_HIGH); }
 extern "C" uint8_t const* tud_descriptor_device_qualifier_cb(void) { return (uint8_t const*)&s_qualDesc; }
-extern "C" uint8_t const* tud_descriptor_other_speed_configuration_cb(uint8_t index) { (void)index; return s_cfgDesc; }   // gleiche Form in beiden Geschwindigkeiten
+extern "C" uint8_t const* tud_descriptor_other_speed_configuration_cb(uint8_t index) { (void)index; return cfgForSpeed(tud_speed_get() != TUSB_SPEED_HIGH); }
 extern "C" uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     (void)langid;
     const char* s = nullptr;
@@ -197,6 +217,7 @@ extern "C" int tud_video_commit_cb(uint_fast8_t ctl_idx, uint_fast8_t stm_idx, v
     (void)ctl_idx; (void)stm_idx;
     uint32_t iv = parameters->dwFrameInterval; if (iv < 333333) iv = 333333; if (iv > 10000000) iv = 10000000;
     s_intervalMs = iv / 10000;
+    s_payloadMax = parameters->dwMaxPayloadTransferSize;   // = WEIRDOS_UVC_PAYLOAD_MAX, sofern der Host es uebernimmt
     return VIDEO_ERROR_NONE;
 }
 extern "C" int tud_video_power_mode_cb(uint_fast8_t ctl_idx, uint8_t power_mod) { (void)ctl_idx; (void)power_mod; return VIDEO_ERROR_NONE; }
@@ -214,7 +235,7 @@ static void pump() {
     bool streaming = mounted && tud_video_n_streaming(0, 0);
     if (streaming != s_streaming) {
         s_streaming = streaming;
-        if (streaming) { s_txBusy = false; s_lastFrameUs = 0; logEvent(String("UVC: Stream gestartet (") + s_w + "x" + s_h + ", Intervall " + s_intervalMs + " ms)"); }
+        if (streaming) { s_txBusy = false; s_lastFrameUs = 0; logEvent(String("UVC: Stream gestartet (") + s_w + "x" + s_h + ", Intervall " + s_intervalMs + " ms, Bulk-Payload " + s_payloadMax + " B)"); }
         else logEvent("UVC: Stream gestoppt");
         if (!s_srcTest) {
             if (streaming && !s_camConsumer) { s_seq = cameraStream.latestSequence(); cameraStream.addClient(); s_camConsumer = true; }
@@ -251,6 +272,7 @@ static void cleanupAfterFail(bool tusbInited) {
     if (tusbInited) tusb_deinit(s_rhport);
     if (s_phy) { usb_del_phy(s_phy); s_phy = nullptr; }
     if (s_cfgDesc) { free(s_cfgDesc); s_cfgDesc = nullptr; s_cfgLen = 0; }
+    if (s_cfgDescHs) { free(s_cfgDescHs); s_cfgDescHs = nullptr; s_cfgLenHs = 0; }
 }
 
 bool UsbDeviceService::begin() {
@@ -282,8 +304,8 @@ bool UsbDeviceService::begin() {
         fail_ = "Worker-Task nicht anlegbar (interner Heap)"; Serial.println("USB-Device: " + fail_); logEvent("UVC: " + fail_); cleanupAfterFail(true); return false;
     }
     started_ = true;
-    Serial.printf("USB-Device bereit: 'WeirdOS Camera' <- %s, MJPEG %ux%u @%u fps, Port %s\n",
-                  cfg_.cam.c_str(), (unsigned)w, (unsigned)h, (unsigned)cfg_.fps, portLabel(cfg_.port).c_str());
+    Serial.printf("USB-Device bereit: 'WeirdOS Camera' <- %s, MJPEG %ux%u @%u fps, Bulk %u B/Paket, Port %s\n",
+                  cfg_.cam.c_str(), (unsigned)w, (unsigned)h, (unsigned)cfg_.fps, (unsigned)(s_highSpeed ? UVC_BULK_MPS_HS : UVC_BULK_MPS_FS), portLabel(cfg_.port).c_str());
     return true;
 }
 
@@ -292,7 +314,7 @@ String UsbDeviceService::statusText() {
     t += String("  Export: camera0=") + (cfg_.cam == "camera0" ? "UVC" : "aus") + "  testpattern0=" + (cfg_.cam == "testpattern0" ? "UVC" : "aus") + "  microphone0=UAC nicht implementiert  usb-network=NCM nicht implementiert  fps " + cfg_.fps + "\r\n";
     t += String("  Stack: ") + (started_ ? "laeuft" : (fail_.length() ? ("NICHT gestartet: " + fail_) : "nicht gestartet")) + "\r\n";
     if (started_) {
-        t += String("  Host: ") + (s_mounted ? "konfiguriert" : "nicht verbunden") + (s_suspended ? " (suspend)" : "") + "  Stream: " + (s_streaming ? "AN" : "aus") + "  Intervall " + s_intervalMs + " ms  " + (s_highSpeed ? "HS" : "FS") + " rhport " + s_rhport + "\r\n";
+        t += String("  Host: ") + (s_mounted ? "konfiguriert" : "nicht verbunden") + (s_suspended ? " (suspend)" : "") + "  Stream: " + (s_streaming ? "AN" : "aus") + "  Intervall " + s_intervalMs + " ms  " + (s_highSpeed ? "HS" : "FS") + " rhport " + s_rhport + "  Transport Bulk, Payload " + s_payloadMax + " B\r\n";
         t += String("  Format: MJPEG ") + s_w + "x" + s_h + "  Frames " + s_frames + "  Bytes " + s_bytes + "  letzte/max JPEG " + s_lastLen + "/" + s_maxLen + " B  uebersprungen " + s_skipsNoFrame + "\r\n";
     }
     return t;
@@ -301,7 +323,7 @@ String UsbDeviceService::statusJson() {
     return String("{\"port\":\"") + cfg_.port + "\",\"portLabel\":\"" + escapeJson(portLabel(cfg_.port)) + "\",\"cam\":\"" + cfg_.cam + "\",\"fps\":" + cfg_.fps +
            ",\"active\":" + (started_ ? "true" : "false") + ",\"fail\":\"" + escapeJson(fail_) + "\"" +
            ",\"mounted\":" + (s_mounted ? "true" : "false") + ",\"streaming\":" + (s_streaming ? "true" : "false") + ",\"intervalMs\":" + s_intervalMs +
-           ",\"highSpeed\":" + (s_highSpeed ? "true" : "false") + ",\"width\":" + s_w + ",\"height\":" + s_h + ",\"frames\":" + s_frames + ",\"bytes\":" + s_bytes +
+           ",\"highSpeed\":" + (s_highSpeed ? "true" : "false") + ",\"transport\":\"bulk\",\"payloadMax\":" + s_payloadMax + ",\"width\":" + s_w + ",\"height\":" + s_h + ",\"frames\":" + s_frames + ",\"bytes\":" + s_bytes +
            ",\"lastLen\":" + s_lastLen + ",\"maxLen\":" + s_maxLen + ",\"skips\":" + s_skipsNoFrame + "}";
 }
 #else

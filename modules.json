@@ -52,7 +52,8 @@
     { "key": "H264",       "layer": "video", "label": "H.264",                "status": "wired",    "default": "soc:h264hw", "requires": ["CAMERA"], "soc": ["h264hw"],
       "files": ["h264_encoder.*", "h264_fmp4.*", "h264_guard.*", "ppa_converter.*"], "cost": { "dma_ram_kb": 166 }, "hint": "HW-Encoder + PPA + fMP4. Nur P4." },
     { "key": "UVC",        "layer": "video", "label": "USB-Webcam",           "status": "wired", "default": "feature:USB_DEVICE", "requires": ["CAMERA", "USB_DEVICE"],
-      "files": ["usb_device_service.* (TinyUSB-Start nur mit UVC: USB_DEVICE = Stack, UVC = Kamera-Klasse)", "usb_uvc_testimage.h"], "hint": "Das Board als Webcam am PC. Heute Testbild; echte Kamera folgt." },
+      "files": ["usb_device_service.* (TinyUSB-Start nur mit UVC: USB_DEVICE = Stack, UVC = Kamera-Klasse)", "uvc_video_device.c (eigene TinyUSB-Videoklasse: Bulk, 4-KB-Payloads; ersetzt video_device.o der Core-Lib)", "uvc_video_device_glue.cpp", "usb_uvc_testimage.h"],
+      "hint": "Das Board als Webcam am PC: MJPEG ueber Bulk aus der eigenen TinyUSB-Videoklasse (die der Core-Lib sendet auf dem S3 64-Byte-ISO-Payloads = ~62 KB/s und zerrissene Bilder). Kamera per Vorgabe, Testbild waehlbar." },
 
     { "key": "HTTP",       "layer": "control", "label": "HTTP-Server",       "status": "wired", "default": 1, "requires": ["NET"],
       "files": ["weird_http_esp.*", "weird_auth.*", "g_web + startWebServer() (alle Routen) in weirdos-esp32.ino"], "hint": "Transport + Auth. Basis fuer WEBUI, VIDEO_HTTP, OTA." },
