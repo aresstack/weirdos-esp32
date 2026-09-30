@@ -100,6 +100,21 @@ err_t linkOutput(struct netif* nif, struct pbuf* p) {
     TxFrame& f = s_txSlots[idx];
     f.len = p->tot_len;
     pbuf_copy_partial(p, f.data, f.len, 0);
+    // Diagnose Tunnel-Rueckweg (2026-09-30): erreicht eine GEFORWARDETE Antwort
+    // (IPv4-Quelle ausserhalb 192.168.7.0/24, z. B. 192.168.110.11 aus dem IPsec-
+    // Tunnel) ueberhaupt unseren TX? Die ersten drei ins Ereignis-Log -- fehlt das
+    // Event trotz replies-Zaehler im Forward-Hook, verliert der lwIP-Ausgabepfad
+    // (etharp/ip4_output) die Pakete VOR dem netif; kommt es, liegt es hinter uns.
+    if (f.len >= 34 && f.data[12] == 0x08 && f.data[13] == 0x00) {
+        const uint8_t* sip = f.data + 26;   // Ethernet 14 B + IPv4-Header-Offset src = 12
+        if (!(sip[0] == 192 && sip[1] == 168 && sip[2] == 7)) {
+            static int s_txForeignLog = 0;
+            if (s_txForeignLog < 3) {
+                s_txForeignLog++;
+                logEvent(String("NCM: TX fremde Quelle ") + sip[0] + "." + sip[1] + "." + sip[2] + "." + sip[3] + " (" + f.len + " B)");
+            }
+        }
+    }
     static int s_txQueuedLog = 0;
     if (s_txQueuedLog < 8) { s_txQueuedLog++; logEvent(String("NCM: TX anstehend ") + f.len + " B"); }
     if (xQueueSend(s_txReady, &idx, 0) != pdTRUE) { xQueueSend(s_txFree, &idx, 0); }   // kann bei Tiefe==Slots nicht passieren

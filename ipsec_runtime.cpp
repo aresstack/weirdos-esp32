@@ -260,7 +260,12 @@ static void tunDown() {
 }
 static void tunDeliver(const uint8_t* ip, size_t len) {   // inneres IPv4 (Klartext) -> lwIP
     if (!g_tunUp) return;
-    struct pbuf* p = pbuf_alloc(PBUF_RAW, (u16_t)len, PBUF_POOL);
+    // PBUF_LINK statt PBUF_RAW: reserviert Ethernet-Headroom. Mit PBUF_RAW (0 Byte
+    // Reserve) scheiterte beim ZONEN-FORWARD auf ein Ethernet-netif (USB-NCM) das
+    // pbuf_add_header(14) in ethernet_output -> Tunnel-Antworten wurden STILL verworfen
+    // (replies-Zaehler lief, linkOutput sah nie ein Paket; Befund 2026-09-30). Lokal
+    // und Richtung WireGuard (kein Ethernet-Header) fiel das nie auf.
+    struct pbuf* p = pbuf_alloc(PBUF_LINK, (u16_t)len, PBUF_POOL);
     if (!p) { g_tunDrop++; return; }
     pbuf_take(p, ip, (u16_t)len);
     if (g_tun.input(p, &g_tun) != ERR_OK) { pbuf_free(p); g_tunDrop++; return; }
