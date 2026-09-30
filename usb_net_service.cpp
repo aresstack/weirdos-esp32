@@ -16,7 +16,7 @@
 #include "lwip/tcpip.h"
 #include "lwip/pbuf.h"
 #include "lwip/ip4_addr.h"
-#include "lwip/apps/dhcpserver/dhcpserver.h"
+#include "dhcpserver/dhcpserver.h"
 
 namespace cam { namespace usbnet {
 namespace {

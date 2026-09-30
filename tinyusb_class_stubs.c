@@ -28,11 +28,17 @@
     bool     P##_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request) { (void)rhport; (void)stage; (void)request; return false; } \
     bool     P##_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) { (void)rhport; (void)ep_addr; (void)result; (void)xferred_bytes; return false; }
 
-STUB_CLASS(cdcd)
+// cdcd NICHT stubben: jeder USB-Geraetebuild traegt die CDC-Konsole (Lebensader,
+// usb_device_service) -- der 1200-Baud-Touch/esptool-Reset braucht die ECHTE
+// CDC-Klasse der Bibliothek. Ein Stub hier machte die Lebensader wirkungslos.
 STUB_CLASS(hidd)
 STUB_CLASS(midid)
 STUB_CLASS(vendord)
+#if !WEIRDOS_FEATURE_USB_NCM
+// Ohne den Baustein USB_NCM bleibt die Netzwerkklasse ein Stub. MIT USB_NCM
+// linkt die echte ncm_device.c -- ein Stub daneben waere "multiple definition".
 STUB_CLASS(netd)
+#endif
 #if !WEIRDOS_FEATURE_AUDIO
 // Ohne den Baustein AUDIO bleibt die Audio-Klasse ein Stub. MIT AUDIO (USB-Mikrofon, UAC2) referenziert
 // usb_device_service.cpp tud_audio_write & Co. -> der Linker holt audio_device.o aus dem Archiv, das

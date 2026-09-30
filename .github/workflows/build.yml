@@ -110,6 +110,13 @@ jobs:
             fqbn: "esp32:esp32:esp32p4:FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=enabled"
             flags: "-DWEIRDOS_FEATURE_WIFI=0 -DWEIRDOS_FEATURE_BLE=0 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0 -DWEIRDOS_FEATURE_RTSP=0 -DWEIRDOS_FEATURE_WIREGUARD=0 -DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=1 -DWEIRDOS_FEATURE_USB_NCM=1"
             optional: false
+          # USB-Netzwerkadapter OHNE Kamera (Profil usb-tether-artig): beweist, dass der
+          # USB-Device-Stack fuer NCM allein startet (nicht mehr auf UVC gegated) und der
+          # Composite-Deskriptor ohne Video baut. CDC-Lebensader immer dabei.
+          - name: S3 usb-net ohne Kamera (NCM + Konsole)
+            fqbn: "esp32:esp32:XIAO_ESP32S3:USBMode=default,CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M,PartitionScheme=default_8MB"
+            flags: "-DWEIRDOS_FEATURE_CAMERA=0 -DWEIRDOS_FEATURE_WIFI=0 -DWEIRDOS_FEATURE_BLE=0 -DWEIRDOS_FEATURE_MODEM=0 -DWEIRDOS_FEATURE_USB_HOST=0 -DWEIRDOS_FEATURE_VIDEO_HTTP=0 -DWEIRDOS_FEATURE_RTSP=0 -DWEIRDOS_FEATURE_H264=0 -DWEIRDOS_FEATURE_ROUTER=0 -DWEIRDOS_FEATURE_WIREGUARD=0 -DWEIRDOS_FEATURE_IPSEC=0 -DWEIRDOS_FEATURE_AUDIO=0 -DWEIRDOS_FEATURE_USB_DEVICE=1 -DWEIRDOS_FEATURE_UVC=0 -DWEIRDOS_FEATURE_USB_NCM=1 -DWEIRDOS_FEATURE_HTTP=1 -DWEIRDOS_FEATURE_WEBUI=1"
+            optional: false
           # Webcam + USB-Mikrofon auf dem P4 (ES8311-Backend). Den S3-PDM-Fall deckt
           # bereits "S3 webcam+mic (UVC + UAC2)" oben ab; hier fehlte nur der P4-Zweig
           # von mic_capture (I2S-Std + ES8311 ueber I2C).

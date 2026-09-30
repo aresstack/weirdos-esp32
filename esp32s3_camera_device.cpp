@@ -410,6 +410,7 @@ CameraFrame* Esp32S3DvpCamera::acquireFrame() { return nullptr; }
 void         Esp32S3DvpCamera::releaseFrame(CameraFrame* frame) { (void)frame; }
 int          Esp32S3DvpCamera::enumModes(CameraVideoMode* out, int maxOut) const { (void)out; (void)maxOut; return 0; }
 bool         Esp32S3DvpCamera::setMode(uint16_t width, uint16_t height) { (void)width; (void)height; return false; }
+bool         Esp32S3DvpCamera::currentMode(uint16_t& width, uint16_t& height) const { (void)width; (void)height; return false; }
 int          Esp32S3DvpCamera::paramCount() const { return 0; }
 bool         Esp32S3DvpCamera::paramAt(int index, CameraParamInfo& out) const { (void)index; (void)out; return false; }
 bool         Esp32S3DvpCamera::setParam(const char* key, int value) { (void)key; (void)value; return false; }

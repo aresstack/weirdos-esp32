@@ -20,7 +20,11 @@
 #include "weirdos_features.h"
 // UVC ist heute die einzige Geraeteklasse: ohne den Baustein UVC gibt es nichts zu exportieren, also
 // auch keinen TinyUSB-Start (USB_DEVICE = Stack, UVC = Kamera-Klasse; USB_NCM folgt als eigene Klasse).
-#if SOC_USB_OTG_SUPPORTED && defined(CONFIG_TINYUSB_ENABLED) && WEIRDOS_USB_DEVICE && WEIRDOS_FEATURE_UVC
+// Der TinyUSB-Device-Stack startet fuer JEDE Geraeteklasse, nicht nur die Kamera:
+// UVC (Webcam) ODER USB_NCM (Netzwerkadapter, z.B. Profil usb-tether ohne Kamera).
+// Frueher nur UVC -> usb-tether (USB_DEVICE+USB_NCM, kein UVC) startete den Stack
+// nie und lieferte kein Netz (statischer Befund 2026-09-30).
+#if SOC_USB_OTG_SUPPORTED && defined(CONFIG_TINYUSB_ENABLED) && WEIRDOS_USB_DEVICE && (WEIRDOS_FEATURE_UVC || WEIRDOS_FEATURE_USB_NCM)
 #define WEIRDOS_USBDEV_SUPPORTED 1
 #else
 #define WEIRDOS_USBDEV_SUPPORTED 0
@@ -127,7 +131,14 @@ String UsbDeviceService::saveConfig(const UsbDeviceConfig& c) {
 
 #if WEIRDOS_USBDEV_SUPPORTED
 // ---- Deskriptor-Tabelle (Composite-vorbereitet: Interfaces/EPs/Strings fortlaufend) ---------------
-enum { ITF_VC = 0, ITF_VS = 1, ITF_COUNT = 2 };
+// Video belegt die Interfaces 0/1 NUR mit UVC. Ohne Kamera (NCM-only, usb-tether)
+// beginnen Audio/CDC/NCM bei Interface 0. ITF_COUNT = Basis fuer den Rest.
+enum { ITF_VC = 0, ITF_VS = 1 };
+#if WEIRDOS_FEATURE_UVC
+#define ITF_COUNT 2
+#else
+#define ITF_COUNT 0
+#endif
 enum { STR_LANG = 0, STR_MANUF = 1, STR_PRODUCT = 2, STR_SERIAL = 3, STR_UVC = 4, STR_UAC = 5,
        STR_CDC = 8 };   // 6/7 = NCM (STR_NCM/STR_NCM_MAC, nur mit USB_NCM)
 #define UVC_EP_IN     0x81
@@ -210,6 +221,7 @@ static bool      s_srcTest = true;
 // Payloads am Stueck aus der ISR. Bulk-UVC hat GENAU EIN Alternate Setting (0) mit dem Endpunkt darin; der
 // Host startet den Stream mit COMMIT und liest -- kein SET_INTERFACE(1) wie bei ISO.
 static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps, uint8_t** outDesc, uint16_t* outLen) {
+#if WEIRDOS_FEATURE_UVC
     const uint32_t interval = 10000000UL / fps;  // 100-ns-Einheiten
     // Ein Frame-Deskriptor je waehlbarer Aufloesung (s_mode*); ohne Liste genau
     // einer (w,h) -- Testbild oder Kamera ohne Modusliste. Der Host waehlt per
@@ -232,6 +244,13 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
         TUD_VIDEO_DESC_CS_VS_COLOR_MATCHING(VIDEO_COLOR_PRIMARIES_BT709, VIDEO_COLOR_XFER_CH_BT709, VIDEO_COLOR_COEF_SMPTE170M),
         TUD_VIDEO_DESC_EP_BULK(UVC_EP_IN, bulkMps, 0)
     };
+    const uint16_t videoLen = (uint16_t)sizeof(partA)
+                            + (uint16_t)nFrames * TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT_LEN
+                            + (uint16_t)sizeof(partC);
+#else
+    (void)w; (void)h; (void)fps;
+    const uint16_t videoLen = 0;
+#endif
 
 #if WEIRDOS_UAC_SUPPORTED
     // UAC2-Mikrofon (nur wenn ein Mikro erkannt wurde). Von Hand nach Spec, weil
@@ -281,7 +300,8 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
     // Prioritaet: Video 0x81, Audio 0x82 (wenn Mikro), dann CDC (Notify+Daten),
     // dann NCM (Notify+Daten) NUR wenn noch zwei frei sind -- sonst faellt NCM
     // fuer diesen Lauf weg (Log), die Lebensader faellt nie.
-    uint8_t nextIn = (audioItf != 0) ? 3 : 2;   // nach 0x81 (+0x82 bei Audio)
+    // Erster freier IN-Endpunkt: EP1 (0x81) nur mit Video, EP2 (0x82) nur mit Audio.
+    uint8_t nextIn = (uint8_t)(1 + (WEIRDOS_FEATURE_UVC ? 1 : 0) + (audioItf ? 1 : 0));
     const uint8_t cdcNotifEp = (uint8_t)(0x80 | nextIn++);
     const uint8_t cdcDataNum = nextIn++;
     const uint8_t cdcItf = (uint8_t)(ITF_COUNT + audioItf);
@@ -311,9 +331,8 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
 #endif
 
     const uint8_t  itfTotal = (uint8_t)(ITF_COUNT + audioItf + 2 /*CDC*/ + ncmItf);
-    const uint16_t total = TUD_CONFIG_DESC_LEN + (uint16_t)sizeof(partA)
-                         + (uint16_t)nFrames * TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT_LEN
-                         + (uint16_t)sizeof(partC) + audioLen + (uint16_t)sizeof(cdc) + ncmLen;
+    const uint16_t total = TUD_CONFIG_DESC_LEN + videoLen
+                         + audioLen + (uint16_t)sizeof(cdc) + ncmLen;
     // Extern versorgt -> SELF_POWERED, 100 mA (VBUS-Sense gibt es nicht -> siehe Header/USB-DEVICE.md)
     const uint8_t head[] = { TUD_CONFIG_DESCRIPTOR(1, itfTotal, 0, total, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100) };
     uint8_t* d = (uint8_t*)malloc(total);
@@ -322,6 +341,7 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
     *outDesc = d; *outLen = total;
     uint8_t* p = d;
     memcpy(p, head, sizeof(head));   p += sizeof(head);
+#if WEIRDOS_FEATURE_UVC
     memcpy(p, partA, sizeof(partA)); p += sizeof(partA);
     for (int i = 0; i < nFrames; i++) {
         const uint16_t fw = (s_modeCount > 0) ? s_modeW[i] : w;
@@ -334,6 +354,7 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
         memcpy(p, frm, sizeof(frm)); p += sizeof(frm);
     }
     memcpy(p, partC, sizeof(partC)); p += sizeof(partC);
+#endif
 #if WEIRDOS_UAC_SUPPORTED
     if (withAudio) { memcpy(p, audio, sizeof(audio)); p += sizeof(audio); }
 #endif
@@ -494,9 +515,16 @@ static void pump() {
     if (mounted != s_mounted) {
         s_mounted = mounted;
         if (mounted) logEvent(String("USB-Device: vom PC angesprochen (konfiguriert, ") + (tud_speed_get() == TUSB_SPEED_HIGH ? "High-Speed" : "Full-Speed") + ")");
-        else { s_streaming = false; s_txBusy = false; logEvent("USB-Device: vom PC getrennt"); if (s_camConsumer) { cameraStream.removeClient(); s_camConsumer = false; } }
+        else { s_streaming = false; s_txBusy = false; logEvent("USB-Device: vom PC getrennt");
+#if WEIRDOS_FEATURE_UVC
+               if (s_camConsumer) { cameraStream.removeClient(); s_camConsumer = false; }
+#endif
+        }
     }
     s_suspended = tud_suspended();
+#if !WEIRDOS_FEATURE_UVC
+    return;   // ohne Kamera nichts zu pumpen (NCM/CDC laufen ueber ihre eigenen Klassen)
+#else
     bool streaming = mounted && tud_video_n_streaming(0, 0);
     if (streaming != s_streaming) {
         s_streaming = streaming;
@@ -531,6 +559,7 @@ static void pump() {
     if (!tud_video_n_frame_xfer(0, 0, (void*)data, len)) return;
     s_txBusy = true; s_lastFrameUs = now;
     s_frames++; s_bytes += (uint32_t)len; s_lastLen = (uint32_t)len; if (len > s_maxLen) s_maxLen = (uint32_t)len;
+#endif  // WEIRDOS_FEATURE_UVC
 }
 
 #if WEIRDOS_UAC_SUPPORTED
@@ -570,9 +599,11 @@ static void cleanupAfterFail(bool tusbInited) {
 
 bool UsbDeviceService::begin() {
     fail_ = "";
-    if (!enabled()) { Serial.println("USB-Device: kein Export konfiguriert (System > Geraete > Bereitstellen an USB)."); return false; }
-    s_srcTest = (cfg_.cam == "testpattern0");
     uint16_t w = UVC_TEST_JPEG_W, h = UVC_TEST_JPEG_H;
+    s_srcTest = (cfg_.cam == "testpattern0");
+#if WEIRDOS_FEATURE_UVC
+    // Video-Build: es braucht einen Kamera-/Testbild-Export, sonst nichts zu tun.
+    if (!enabled()) { Serial.println("USB-Device: kein Export konfiguriert (System > Geraete > Bereitstellen an USB)."); return false; }
     if (!s_srcTest) {
         if (!cameraReady) { fail_ = "camera0 nicht bereit"; Serial.println("USB-Device: camera0 nicht bereit -> nicht gestartet"); logEvent("UVC: " + fail_); return false; }
         // KEIN stiller Rueckfall auf die Testbild-Masse: der Deskriptor ist ein
@@ -608,6 +639,11 @@ bool UsbDeviceService::begin() {
     } else {
         s_modeCount = 0;   // Testbild: genau ein Frame in Testbild-Groesse
     }
+#else
+    // Kein Video im Build (z.B. usb-tether): kein Kamera-Export, kein Frame.
+    s_srcTest = false;
+    s_modeCount = 0;
+#endif
 #if WEIRDOS_UAC_SUPPORTED
     // Mikrofon best-effort erkennen (Option 3): klappt es, traegt der Deskriptor
     // die Audio-Funktion; sonst bleibt es beim reinen Video (kein Fehler).
