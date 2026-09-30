@@ -75,7 +75,7 @@
       "files": ["aes_engine.*", "aes_soft.*"], "hint": "HW-Block/Software-AES. Zulieferer fuer IPSEC." },
 
     { "key": "DETECTION",  "layer": "future", "label": "Erkennung",          "status": "planned", "default": 0, "requires": ["CAMERA"], "files": [], "hint": "Muster-/Objekterkennung -> Ereignisse (Tuerklingel, Tueroeffner)." },
-    { "key": "AUDIO",      "layer": "future", "label": "Audio",              "status": "planned", "default": 0, "requires": [], "files": ["audio_source.h"], "hint": "Mikrofon/Lautsprecher (Gegensprechen). Nur Schnittstelle." },
+    { "key": "AUDIO",      "layer": "hardware", "label": "Audio (Mikrofon)",   "status": "wired", "default": 0, "requires": [], "files": ["audio_source.h", "mic_capture.* (I2S-PDM am S3, ES8311 am P4; Auto-Erkennung, sanftes Scheitern)"], "hint": "USB-Mikrofon neben der Webcam (UAC2): mit USB_DEVICE/UVC wird das Board zu Kamera + Mikro. Der Treiber richtet sich automatisch nach dem Board (S3-PDM / P4-ES8311); ohne erkanntes Mikro gibt es nur Video." },
     { "key": "ACTUATOR",   "layer": "future", "label": "Aktor",              "status": "planned", "default": 0, "requires": [], "files": [], "hint": "GPIO-Aktor (Tueroeffner, Klingeltaster)." }
   ],
   "runtime_conflicts": [

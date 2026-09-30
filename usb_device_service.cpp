@@ -39,9 +39,23 @@ bool UsbDeviceService::builtIn() { return WEIRDOS_USBDEV_SUPPORTED != 0; }
 #include "peripheral_registry.h"    // periphModemPort (Konflikt: derselbe Port fuer Modem-Host und PC-Geraet)
 #include <cstring>
 
+// USB-Mikrofon (UAC2) laeuft als zweite Funktion im selben Composite-Geraet.
+// Nur wenn der AUDIO-Baustein im Build ist; sonst kein Byte davon. Die
+// TinyUSB-Audio-Klasse ist im Core aktiv (CONFIG_TINYUSB_AUDIO_ENABLED) und
+// parst den Deskriptor dynamisch -- kein Verdraengen wie bei der Videoklasse.
+#if WEIRDOS_USBDEV_SUPPORTED && WEIRDOS_FEATURE_AUDIO
+#define WEIRDOS_UAC_SUPPORTED 1
+#else
+#define WEIRDOS_UAC_SUPPORTED 0
+#endif
+
 #if WEIRDOS_USBDEV_SUPPORTED
 #include "tusb.h"
 #include "class/video/video_device.h"
+#if WEIRDOS_UAC_SUPPORTED
+#include "class/audio/audio_device.h"
+#include "mic_capture.h"
+#endif
 #include "esp_private/usb_phy.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -101,8 +115,23 @@ String UsbDeviceService::saveConfig(const UsbDeviceConfig& c) {
 #if WEIRDOS_USBDEV_SUPPORTED
 // ---- Deskriptor-Tabelle (Composite-vorbereitet: Interfaces/EPs/Strings fortlaufend) ---------------
 enum { ITF_VC = 0, ITF_VS = 1, ITF_COUNT = 2 };
-enum { STR_LANG = 0, STR_MANUF = 1, STR_PRODUCT = 2, STR_SERIAL = 3, STR_UVC = 4 };
+enum { STR_LANG = 0, STR_MANUF = 1, STR_PRODUCT = 2, STR_SERIAL = 3, STR_UVC = 4, STR_UAC = 5 };
 #define UVC_EP_IN     0x81
+#if WEIRDOS_UAC_SUPPORTED
+// Audio-Funktion: eigene IAD ueber die Interfaces 2 (AudioControl) und 3
+// (AudioStreaming); iso IN-Endpunkt 0x82. Feste 16 kHz mono 16-bit (Sprach-Mikro).
+#define UAC_ITF_AC    ITF_COUNT          // 2
+#define UAC_ITF_AS    (ITF_COUNT + 1)    // 3
+#define UAC_ITF_COUNT (ITF_COUNT + 2)    // 4
+#define UAC_EP_IN     0x82
+#define UAC_CLK_ID    0x04
+#define UAC_IT_ID     0x01               // Input Terminal (Mikrofon)
+#define UAC_OT_ID     0x02               // Output Terminal (USB-Stream)
+#define UAC_RATE      16000u
+#define UAC_EP_MPS    64                 // 16 kHz mono 16-bit = 32 B/ms; 64 mit Reserve (async)
+static bool s_audioOn = false;           // Mikro erkannt und Deskriptor traegt die Audio-Funktion
+static volatile bool s_audioStreaming = false;
+#endif
 #define UVC_BULK_MPS_FS 64          // Bulk-Paket Full-Speed (USB 2.0, 5.8.3) -- S3, P4-FSLS
 #define UVC_BULK_MPS_HS 512         // Bulk-Paket High-Speed -- P4-UTMI
 #define UVC_CLOCK_HZ  48000000
@@ -177,11 +206,50 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
         TUD_VIDEO_DESC_CS_VS_COLOR_MATCHING(VIDEO_COLOR_PRIMARIES_BT709, VIDEO_COLOR_XFER_CH_BT709, VIDEO_COLOR_COEF_SMPTE170M),
         TUD_VIDEO_DESC_EP_BULK(UVC_EP_IN, bulkMps, 0)
     };
+
+#if WEIRDOS_UAC_SUPPORTED
+    // UAC2-Mikrofon (nur wenn ein Mikro erkannt wurde). Von Hand nach Spec, weil
+    // der Core die TUD_AUDIO_DESC_*-Makros nicht mitliefert. wTotalLength der
+    // CS-AC = 9(Header)+8(Clock)+17(Input)+12(Output) = 46.
+    const uint8_t audio[] = {
+        // Interface Association: Audio-Funktion, 2 Interfaces (AC+AS)
+        8, 0x0B, UAC_ITF_AC, 2, 0x01, 0x00, 0x20, STR_UAC,
+        // Std AC-Interface (alt 0, 0 EP)
+        9, 0x04, UAC_ITF_AC, 0, 0, 0x01, 0x01, 0x20, 0,
+        // CS AC-Header (UAC2): bcdADC=0x0200, Kategorie I/O-Box=0x08, wTotalLength=46, bmControls=0
+        9, 0x24, 0x01, 0x00, 0x02, 0x08, 46, 0x00, 0x00,
+        // Clock Source: ID=4, intern/fest, Freq lesbar (0x01), assoc=Input-Terminal
+        8, 0x24, 0x0A, UAC_CLK_ID, 0x01, 0x01, UAC_IT_ID, 0,
+        // Input Terminal: ID=1, Typ Mikrofon 0x0201, clk=4, 1 Kanal
+        17, 0x24, 0x02, UAC_IT_ID, 0x01, 0x02, 0, UAC_CLK_ID, 1, 0,0,0,0, 0, 0x00,0x00, 0,
+        // Output Terminal: ID=2, USB-Stream 0x0101, Quelle=Input, clk=4
+        12, 0x24, 0x03, UAC_OT_ID, 0x01, 0x01, 0, UAC_IT_ID, UAC_CLK_ID, 0x00,0x00, 0,
+        // Std AS-Interface alt 0 (0 EP)
+        9, 0x04, UAC_ITF_AS, 0, 0, 0x01, 0x02, 0x20, 0,
+        // Std AS-Interface alt 1 (1 EP)
+        9, 0x04, UAC_ITF_AS, 1, 1, 0x01, 0x02, 0x20, 0,
+        // CS AS General: Link=Output-Terminal, Format Typ I, bmFormats=PCM(0x01), 1 Kanal
+        16, 0x24, 0x01, UAC_OT_ID, 0x00, 0x01, 0x01,0x00,0x00,0x00, 1, 0,0,0,0, 0,
+        // Type I Format: SubslotSize=2, BitResolution=16
+        6, 0x24, 0x02, 0x01, 2, 16,
+        // Std iso EP IN: 0x82, iso+async (0x05), Paketgroesse, bInterval=1
+        7, 0x05, UAC_EP_IN, 0x05, (uint8_t)(UAC_EP_MPS & 0xFF), (uint8_t)(UAC_EP_MPS >> 8), 1,
+        // CS AS iso EP General
+        8, 0x25, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    const bool withAudio = s_audioOn;
+    const uint16_t audioLen = withAudio ? (uint16_t)sizeof(audio) : 0;
+    const uint8_t  itfTotal = withAudio ? UAC_ITF_COUNT : ITF_COUNT;
+#else
+    const uint16_t audioLen = 0;
+    const uint8_t  itfTotal = ITF_COUNT;
+#endif
+
     const uint16_t total = TUD_CONFIG_DESC_LEN + (uint16_t)sizeof(partA)
                          + (uint16_t)nFrames * TUD_VIDEO_DESC_CS_VS_FRM_MJPEG_CONT_LEN
-                         + (uint16_t)sizeof(partC);
+                         + (uint16_t)sizeof(partC) + audioLen;
     // Extern versorgt -> SELF_POWERED, 100 mA (VBUS-Sense gibt es nicht -> siehe Header/USB-DEVICE.md)
-    const uint8_t head[] = { TUD_CONFIG_DESCRIPTOR(1, ITF_COUNT, 0, total, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100) };
+    const uint8_t head[] = { TUD_CONFIG_DESCRIPTOR(1, itfTotal, 0, total, TUSB_DESC_CONFIG_ATT_SELF_POWERED, 100) };
     uint8_t* d = (uint8_t*)malloc(total);
     if (!d) return false;
     if (*outDesc) free(*outDesc);
@@ -199,7 +267,10 @@ static bool buildOneConfig(uint16_t w, uint16_t h, uint8_t fps, uint16_t bulkMps
         };
         memcpy(p, frm, sizeof(frm)); p += sizeof(frm);
     }
-    memcpy(p, partC, sizeof(partC));
+    memcpy(p, partC, sizeof(partC)); p += sizeof(partC);
+#if WEIRDOS_UAC_SUPPORTED
+    if (withAudio) { memcpy(p, audio, sizeof(audio)); p += sizeof(audio); }
+#endif
     return true;
 }
 
@@ -244,6 +315,7 @@ extern "C" uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t lang
         case STR_PRODUCT: s = "WeirdOS Camera"; break;
         case STR_SERIAL:  s = s_serial; break;
         case STR_UVC:     s = "WeirdOS Camera"; break;
+        case STR_UAC:     s = "WeirdOS Microphone"; break;
         default: return nullptr;
     }
     size_t n = strlen(s); if (n > 62) n = 62;
@@ -279,6 +351,43 @@ extern "C" int tud_video_commit_cb(uint_fast8_t ctl_idx, uint_fast8_t stm_idx, v
 }
 extern "C" int tud_video_power_mode_cb(uint_fast8_t ctl_idx, uint8_t power_mod) { (void)ctl_idx; (void)power_mod; return VIDEO_ERROR_NONE; }
 extern "C" void tud_video_frame_xfer_complete_cb(uint_fast8_t ctl_idx, uint_fast8_t stm_idx) { (void)ctl_idx; (void)stm_idx; s_txBusy = false; }
+
+#if WEIRDOS_UAC_SUPPORTED
+// ---- UAC2-Mikrofon-Callbacks (die vorkompilierte Audio-Klasse ruft sie) ----------------------------
+// Host waehlt AS-Alt: alt 1 = Stream an, alt 0 = aus.
+extern "C" bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const* req) {
+    (void)rhport;
+    s_audioStreaming = (TU_U16_LOW(req->wValue) != 0);
+    return true;
+}
+extern "C" bool tud_audio_set_itf_close_ep_cb(uint8_t rhport, tusb_control_request_t const* req) {
+    (void)rhport; (void)req; s_audioStreaming = false; return true;
+}
+// Clock-Entity: feste Abtastrate melden (CUR/RANGE) + Clock gueltig.
+extern "C" bool tud_audio_get_req_entity_cb(uint8_t rhport, tusb_control_request_t const* req) {
+    const uint8_t entity  = TU_U16_HIGH(req->wIndex);
+    const uint8_t ctrlSel = TU_U16_HIGH(req->wValue);
+    if (entity != UAC_CLK_ID) return false;
+    if (ctrlSel == 0x01 /*SAM_FREQ_CONTROL*/) {
+        if (req->bRequest == 0x01 /*CUR*/) {
+            uint32_t f = UAC_RATE;
+            return tud_audio_buffer_and_schedule_control_xfer(rhport, req, &f, sizeof(f));
+        }
+        if (req->bRequest == 0x02 /*RANGE*/) {
+            struct TU_ATTR_PACKED { uint16_t n; int32_t mn, mx, res; } r = { 1, (int32_t)UAC_RATE, (int32_t)UAC_RATE, 0 };
+            return tud_audio_buffer_and_schedule_control_xfer(rhport, req, &r, sizeof(r));
+        }
+    } else if (ctrlSel == 0x02 /*CLK_VALID_CONTROL*/ && req->bRequest == 0x01 /*CUR*/) {
+        uint8_t v = 1;
+        return tud_audio_buffer_and_schedule_control_xfer(rhport, req, &v, sizeof(v));
+    }
+    return false;
+}
+// Nur 16 kHz -> jede Setzung der Rate bestaetigen (der Host schickt genau die).
+extern "C" bool tud_audio_set_req_entity_cb(uint8_t rhport, tusb_control_request_t const* req, uint8_t* buf) {
+    (void)rhport; (void)req; (void)buf; return true;
+}
+#endif
 
 // ---- Frame-Pumpe -----------------------------------------------------------------------------------
 static void pump() {
@@ -325,15 +434,32 @@ static void pump() {
     s_frames++; s_bytes += (uint32_t)len; s_lastLen = (uint32_t)len; if (len > s_maxLen) s_maxLen = (uint32_t)len;
 }
 
+#if WEIRDOS_UAC_SUPPORTED
+// Mikrofon-PCM in die Audio-Klasse schieben (unabhaengig vom Video-Pfad, der in
+// pump() frueh zurueckkehrt). Die Klasse laedt daraus den iso IN-Endpunkt.
+static void pumpAudio() {
+    if (!s_audioOn || !s_audioStreaming || !tud_mounted()) return;
+    static int16_t tmp[256];
+    size_t n = cam::mic::read(tmp, 256);
+    if (n) tud_audio_write((uint8_t*)tmp, (uint16_t)(n * sizeof(int16_t)));
+}
+#endif
+
 static void usbdevTask(void*) { usbDeviceService.taskLoop(); vTaskDelete(nullptr); }
 void UsbDeviceService::taskLoop() {
     for (;;) {
         tud_task_ext(2, false);   // Ereignisse verarbeiten, max. 2 ms blockieren
         pump();
+#if WEIRDOS_UAC_SUPPORTED
+        pumpAudio();
+#endif
     }
 }
 
 static void cleanupAfterFail(bool tusbInited) {
+#if WEIRDOS_UAC_SUPPORTED
+    if (s_audioOn) { cam::mic::end(); s_audioOn = false; s_audioStreaming = false; }
+#endif
     if (tusbInited) tusb_deinit(s_rhport);
     if (s_phy) { usb_del_phy(s_phy); s_phy = nullptr; }
     if (s_cfgDesc) { free(s_cfgDesc); s_cfgDesc = nullptr; s_cfgLen = 0; }
@@ -374,6 +500,14 @@ bool UsbDeviceService::begin() {
     } else {
         s_modeCount = 0;   // Testbild: genau ein Frame in Testbild-Groesse
     }
+#if WEIRDOS_UAC_SUPPORTED
+    // Mikrofon best-effort erkennen (Option 3): klappt es, traegt der Deskriptor
+    // die Audio-Funktion; sonst bleibt es beim reinen Video (kein Fehler).
+    uint32_t micRate = 0;
+    s_audioOn = cam::mic::begin(UAC_RATE, &micRate);
+    if (s_audioOn) { Serial.printf("USB-Device: Mikrofon aktiv (%s)\n", cam::mic::backendName()); logEvent(String("UAC: Mikrofon aktiv (") + cam::mic::backendName() + ")"); }
+    else { Serial.println("USB-Device: kein Mikrofon -> nur Video"); }
+#endif
     // Port -> Controller/PHY/rhport aus dem Board-Mapping
     UsbDeviceHw hw = usbPortDeviceHw(cfg_.port);
     if (!hw.ok) { fail_ = "Port " + cfg_.port + " ist im USB-Mapping nicht nutzbar (aus/ungueltige Pins)"; Serial.println("USB-Device: " + fail_); logEvent("UVC: " + fail_); return false; }
@@ -400,7 +534,13 @@ bool UsbDeviceService::begin() {
 
 String UsbDeviceService::statusText() {
     String t = String("usbdev: Port ") + cfg_.port + " (" + portLabel(cfg_.port) + ")\r\n";
-    t += String("  Export: camera0=") + (cfg_.cam == "camera0" ? "UVC" : "aus") + "  testpattern0=" + (cfg_.cam == "testpattern0" ? "UVC" : "aus") + "  microphone0=UAC nicht implementiert  usb-network=NCM nicht implementiert  fps " + cfg_.fps + "\r\n";
+    String micState =
+#if WEIRDOS_UAC_SUPPORTED
+        s_audioOn ? (String("UAC (") + cam::mic::backendName() + ")") : String("kein Mikro erkannt");
+#else
+        String("nicht im Build");
+#endif
+    t += String("  Export: camera0=") + (cfg_.cam == "camera0" ? "UVC" : "aus") + "  testpattern0=" + (cfg_.cam == "testpattern0" ? "UVC" : "aus") + "  microphone0=" + micState + "  usb-network=NCM nicht implementiert  fps " + cfg_.fps + "\r\n";
     t += String("  Stack: ") + (started_ ? "laeuft" : (fail_.length() ? ("NICHT gestartet: " + fail_) : "nicht gestartet")) + "\r\n";
     if (started_) {
         t += String("  Host: ") + (s_mounted ? "konfiguriert" : "nicht verbunden") + (s_suspended ? " (suspend)" : "") + "  Stream: " + (s_streaming ? "AN" : "aus") + "  Intervall " + s_intervalMs + " ms  " + (s_highSpeed ? "HS" : "FS") + " rhport " + s_rhport + "  Transport Bulk, Payload " + s_payloadMax + " B\r\n";
