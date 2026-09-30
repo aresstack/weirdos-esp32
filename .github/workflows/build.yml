@@ -122,4 +122,11 @@ jobs:
           arduino-cli compile --fqbn "${{ matrix.fqbn }}" --warnings default \
             --build-property "compiler.c.extra_flags=${{ matrix.flags }}" \
             --build-property "compiler.cpp.extra_flags=${{ matrix.flags }}" \
-            .
+            . 2>&1 | tee build.log
+      # Groessen als Annotation am Check-Run: die stehen sonst nur im Log (Download nur mit Token),
+      # als Annotation liest sie die oeffentliche API (GET .../check-runs/{job_id}/annotations) -> MODULES.md §8.
+      - name: Groessen melden
+        if: always()
+        run: |
+          grep -a "Sketch uses\|Global variables use" build.log | sed 's/\x1b\[[0-9;]*m//g' | \
+            while IFS= read -r line; do echo "::notice title=${{ matrix.name }}::$line"; done

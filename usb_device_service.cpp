@@ -25,6 +25,9 @@
 #else
 #define WEIRDOS_USBDEV_SUPPORTED 0
 #endif
+#ifndef WEIRDOS_UVC_TESTPATTERN
+#define WEIRDOS_UVC_TESTPATTERN 0   // 1 = Vorgabe des Exports ist das Testbild statt camera0 (Diagnose-Build)
+#endif
 bool UsbDeviceService::builtIn() { return WEIRDOS_USBDEV_SUPPORTED != 0; }
 
 #include <Preferences.h>
@@ -73,7 +76,9 @@ void UsbDeviceService::loadConfig() {
     // Frisches Board, nie konfiguriert: wer den Baustein UVC einbaut, will die Kamera am PC sehen --
     // per Vorgabe AN. Ein Webcam-Profil ohne Weboberflaeche/Konsole haette sonst keinen Weg, den
     // Export je einzuschalten. Ein gespeichertes "aus" (cam="") bleibt ein "aus".
-    if (!p.isKey("cam") && !p.isKey("uvc")) cfg_.cam = WEIRDOS_FEATURE_CAMERA ? "camera0" : "testpattern0";
+    // Diagnose ohne Weboberflaeche/Konsole: -DWEIRDOS_UVC_TESTPATTERN=1 zwingt die Vorgabe auf das
+    // Testbild -> der USB-Pfad laesst sich getrennt von der Kamera pruefen (Bild am PC = USB in Ordnung).
+    if (!p.isKey("cam") && !p.isKey("uvc")) cfg_.cam = (WEIRDOS_FEATURE_CAMERA && !WEIRDOS_UVC_TESTPATTERN) ? "camera0" : "testpattern0";
 #endif
     p.end();
     if (!portValid(cfg_.port)) cfg_.port = defaultPort();

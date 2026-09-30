@@ -100,6 +100,12 @@ Müll, unten korrekt). WeirdOS bringt die Videoklasse deshalb selbst mit
 schneller. Angeboten werden 15 fps (`usbdev`-Einstellung `fps`); die reale Rate
 ergibt sich aus JPEG-Größe und USB-Durchsatz.
 
+**Diagnose: USB-Pfad ohne Kamera prüfen.** `-DWEIRDOS_UVC_TESTPATTERN=1` macht
+das eingebaute Testbild (640×480) zur Vorgabe des Exports. Zeigt der PC das
+Testbild sauber, stimmt der USB-Pfad und der Fehler liegt im Kamerapfad —
+und umgekehrt. Ohne das Flag ist `camera0` die Vorgabe; ein gespeicherter
+Wert im NVS (`usbdev`/`cam`) gewinnt immer.
+
 **S3: kein BOOT+RESET-Hack mehr im Normalfall.** WeirdOS erkennt am
 USB-Serial-JTAG (SOF), ob ein **PC** oder ein **Modem** am USB hängt
 (`usb_serial_jtag_is_connected()`, `weirdos-esp32.ino`). Hängt ein PC dran,
