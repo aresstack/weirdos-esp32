@@ -424,6 +424,30 @@ extern "C" int tud_video_commit_cb(uint_fast8_t ctl_idx, uint_fast8_t stm_idx, v
     }
     return VIDEO_ERROR_NONE;
 }
+// ---- CDC-Lebensader: Bootloader-Einstieg OHNE Tasten -----------------------------------------------
+// NICHT vom Core geerbt: unsere Builds laufen mit CDCOnBoot=Disabled (beim XIAO
+// ist der Wert-Schluessel "cdc" = Disabled!), also linkt main.cpp USBCDC.cpp NIE
+// und dessen Reset-Callbacks existieren nicht. Deshalb hier selbst, Logik 1:1 aus
+// USBCDC.cpp des Cores: 1200-Baud-Touch (Arduino IDE) und die esptool-DTR/RTS-
+// Sequenz IDLE -(0,1)-> 1 -(1,1)-> 2 -(1,0)-> 3 -(0,0)-> Bootloader. Der ROM
+// bleibt dank usb_persist am OTG-Port -> flashbar am selben Kabel.
+#include "esp32-hal-tinyusb.h"   // usb_persist_restart(RESTART_BOOTLOADER)
+extern "C" void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* c) {
+    (void)itf;
+    if (c->bit_rate == 1200) usb_persist_restart(RESTART_BOOTLOADER);
+}
+extern "C" void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
+    (void)itf;
+    static uint8_t st = 0;
+    static bool ldtr = false, lrts = false;
+    if (dtr == ldtr && rts == lrts) return;   // doppelte Ereignisse ueberspringen
+    ldtr = dtr; lrts = rts;
+    if (!dtr && rts)      st = (st == 0) ? 1 : 0;
+    else if (dtr && rts)  st = (st == 1) ? 2 : 0;
+    else if (dtr && !rts) st = (st == 2) ? 3 : 0;
+    else { if (st == 3) usb_persist_restart(RESTART_BOOTLOADER); st = 0; }
+}
+
 extern "C" int tud_video_power_mode_cb(uint_fast8_t ctl_idx, uint8_t power_mod) { (void)ctl_idx; (void)power_mod; return VIDEO_ERROR_NONE; }
 extern "C" void tud_video_frame_xfer_complete_cb(uint_fast8_t ctl_idx, uint_fast8_t stm_idx) { (void)ctl_idx; (void)stm_idx; s_txBusy = false; }
 
