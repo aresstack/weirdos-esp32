@@ -114,6 +114,8 @@
       "note": "Die Kamera waehlt sich per IKEv2 in ein bestehendes VPN ein (FRITZ!Box, Firma) und ist nur dort sichtbar. Braucht PSRAM." },
     { "id": "surveillance-lte", "label": "Ueberwachungskamera LTE (Feld, H.264)", "modules": ["CAMERA", "NET", "USB_HOST", "MODEM", "RTSP", "H264", "WIREGUARD", "ROUTER", "HTTP", "WEBUI", "CONSOLE", "DYNDNS", "TLS_CLIENT", "OTA", "BACKUP"],
       "note": "P4-Vollprofil fuer draussen: HW-H.264 ueber LTE, VPN-Rueckkanal, Fernupdate." },
+    { "id": "surveillance-lte-ipsec", "label": "Ueberwachungskamera LTE (RTSP, IPsec)", "modules": ["CAMERA", "NET", "USB_HOST", "MODEM", "RTSP", "H264", "IPSEC", "CRYPTO_AES", "HTTP", "WEBUI", "CONSOLE", "OTA", "BACKUP"],
+      "note": "Feldkamera am Mobilfunk, die sich per IKEv2 in die FRITZ!Box oder das Firmen-VPN einwaehlt; RTSP (H.264 auf dem P4, MJPEG auf dem S3) nur im Tunnel, kein offener Port, kein DynDNS noetig. Fernupdate ueber den Tunnel. Braucht PSRAM." },
     { "id": "doorbell",         "label": "Tuerklingel / Gegensprechanlage",       "modules": ["CAMERA", "NET", "WIFI", "VIDEO_HTTP", "RTSP", "HTTP", "WEBUI", "TLS_SERVER", "DETECTION", "ACTUATOR", "AUDIO"],
       "note": "Bild + Klingeltaster + Tueroeffner. DETECTION/ACTUATOR/AUDIO sind geplant (ausgegraut)." },
 
