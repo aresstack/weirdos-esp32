@@ -229,6 +229,10 @@ wie WLAN": DHCP-Lifecycle, NAPT, DNS, Events, Default-Route).
    (`esp_netif_napt_enable` setzt dasselbe lwIP-NAPT, das der Zonen-Forwarder
    auf rohen netifs nutzt).
 
+**Fortsetzung:** Die Routing-/VPN-Schicht darueber (Zonen-Hooks/liblwip-Patch,
+WireGuard-Endpoint, PBUF_RAW-Falle, DHCP-Option 121 Zero-Config, NAPT-Grenzen,
+RTSP-Default) ist in **`VPN-TETHERING.md`** dokumentiert.
+
 **Tethering-Weg (UMGESETZT + hardware-bewiesen 2026-09-30):** `usb-ncm` ist im
 Registry-/Zonen-Kern registriert — vier Stellen plus zwei Stolpersteine:
 
