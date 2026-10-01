@@ -255,6 +255,11 @@ void renderInternet(WeirdUiWriter& w) {
         "<option value='o2'>o2 / Telefonica (internet)</option>"
         "<option value='o2netpublic'>o2 netpublic - oeffentl. IPv4 (kostenpflichtig)</option>"
         "<option value='telekom'>Telekom (internet.telekom)</option>"
+        // Das Gegenstueck zu o2 netpublic -- OHNE diesen Eintrag ist der Preset
+        // telekompublic aus web_ui_assets.cpp von der Oberflaeche aus unerreichbar
+        // (Befund 2026-10-01: Profil, Doku und serielle Konsole waren da, nur die
+        // Auswahlzeile fehlte). Hardware-verifiziert, siehe TELEKOM-PUBLIC-IPV4.md.
+        "<option value='telekompublic'>Telekom - oeffentl. IPv4 (internet.t-d1.de)</option>"
         "<option value='vodafone'>Vodafone (web.vodafone.de)</option>"
         "</select>"
         "<p id='m-provider-hint' class='cam-hint'></p>"
