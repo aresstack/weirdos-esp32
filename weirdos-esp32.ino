@@ -882,13 +882,19 @@ void setup() {
     if (!modemUsbEnabled) {
         usbHostSkipReason = "Modem in Einstellungen deaktiviert";
         Serial.println("USB-Host uebersprungen: Modem deaktiviert.");
-    // Universelle Regel (Board-Mapping): ist der Port des Modems (cellular0) zugleich der Port des PC-Geraets
-    // (UVC-Export), gehoert er dem PC -- der Modem-Host bleibt mit Grund aus. Verschiedene Ports = verschiedene
-    // Controller = kein gegenseitiges Gate (P4: Modem HS am MX1.25, PC FS auf der Stiftleiste).
+#if CONFIG_IDF_TARGET_ESP32P4
+    // MEHRERE USB-Controller (P4: Modem HS am MX1.25, PC FS auf der Stiftleiste): wer denselben
+    // Port fuer beides konfiguriert, bekommt den Modem-Host mit Grund abgeschaltet -- eine
+    // Fehlkonfiguration, keine Hardware-Grenze.
     } else if (usbDeviceService.conflictsWithModemPort()) {
         usbHostSkipReason = "USB-Port " + periphModemPort + " ist als PC-Geraet (Webcam) konfiguriert -- Modem-Host aus";
         Serial.println("USB-Host uebersprungen: Modem-Port ist dem USB-Device zum PC zugewiesen.");
-#if !CONFIG_IDF_TARGET_ESP32P4
+#else
+    // EIN Port (S3): Webcam-Export und Modem teilen sich zwangslaeufig denselben USB-C -- das ist
+    // KEIN Konfigurationsfehler, sondern der Normalfall. Statt den Modem-Host pauschal zu sperren,
+    // entscheidet die angesteckte Hardware beim Boot: PC erkannt -> USB-Geraet (Webcam + Netz +
+    // Tethering); kein PC -> Modem-Host. Umstecken + Reset wechselt die Rolle (Befund 2026-10-01:
+    // die Konflikt-Regel hat diese Entscheidung vorher immer uebersprungen).
     // S3-Erbe (ein USB-C fuer Programmierport, Modem-Host und PC-Geraet): PC am USB -> kein Host.
     } else if (usbPcConnected()) {
         usbHostSkipReason = usbDeviceService.enabled() ? "PC am USB erkannt -> USB-Geraet (Webcam) statt Modem-Host"
