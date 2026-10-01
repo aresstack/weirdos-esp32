@@ -970,6 +970,49 @@ static PppStateObj& stFailed() { static StFailed s; return s; }
 // lwIP-Link-Callback -> Maschine (von pppLinkStatusCb aufgerufen).
 static void pppOnLinkEvent(int err) { g_ppm.onLink(err); }
 
+// Den APN fuer den EPS-ATTACH setzen -- VOR der Registrierungspruefung.
+//
+// WARUM das nicht erst im Dial weiter unten reicht: auf LTE traegt schon der
+// Attach den APN aus PDP-Kontext 1. Steht dort einer, der nicht zur SIM gehoert
+// (z.B. o2 "netpublic" auf einer Telekom-Karte), lehnt das Netz den Attach ab
+// (+CEREG: 3 = denied) und das Modem faellt auf 2G zurueck. modemWaitRegistered()
+// scheitert dann JEDES MAL -- und der Dial, der den richtigen APN schreiben
+// wuerde, wird nie erreicht. Die Katze beisst sich in den Schwanz: die Konsole
+// zeigt den richtigen APN an, im Modem steht der alte, und nichts bewegt sich.
+//
+// Am Geraet nachgewiesen (P4-Pico, Telekom-SIM, 2026-10-01): CEREG 0,3 und
+// COPS AcT 3 (GSM/EDGE) bei gutem Signal; direkt nach dem CGDCONT-Schreiben
+// AcT 7 (LTE), CEREG 0,1 und PPP mit oeffentlicher IPv4 37.81.x. Der ECM-Pfad
+// macht es laengst in dieser Reihenfolge (ec200a_ecm.cpp) -- nur PPP nicht.
+//
+// Geschrieben wird NUR bei Abweichung: ein CGDCONT auf einen passenden Kontext
+// waere bei jedem Dial-Versuch ein unnoetiger Eingriff ins Modem. Das Format in
+// der Vergleichszeile ist das echte der EC200A-Antwort, nicht geraten:
+//   +CGDCONT: 1,"IP","internet.t-d1.de","0.0.0.0",0,0,0,0,0,0
+static void pppEnsureAttachContext(uint8_t ifNum, uint8_t epOut, uint8_t epIn) {
+    const String apn = modemApn.length() ? modemApn : String("netpublic");
+    const String pdp = (modemPdpType == "IPV4V6") ? String("IPV4V6") : String("IP");
+    String have = modemAtTest(ifNum, epOut, epIn, "AT+CGDCONT?");
+    if (have.indexOf("+CGDCONT:") < 0)                 // Kanal-Lag: Antwort im Folge-Read
+        have = modemAtTest(ifNum, epOut, epIn, "AT+CGDCONT?");
+    if (have.indexOf("+CGDCONT:") < 0) {
+        // Kein lesbarer Stand -> NICHT blind schreiben. Ein CGATT-Zyklus auf gut
+        // Glueck wuerde eine funktionierende Verbindung kosten; der naechste
+        // Supervisor-Lauf liest erneut.
+        Serial.println("[PPP] Attach-APN: AT+CGDCONT? ohne Antwort -- Kontext bleibt unangetastet.");
+        return;
+    }
+    if (have.indexOf(String("+CGDCONT: 1,\"") + pdp + "\",\"" + apn + "\"") >= 0)
+        return;
+    Serial.printf("[PPP] Attach-APN passt nicht zur Konfiguration -> setze 1,\"%s\",\"%s\"\n",
+                  pdp.c_str(), apn.c_str());
+    modemAtTest(ifNum, epOut, epIn, "AT+CGDCONT=1,\"" + pdp + "\",\"" + apn + "\"");
+    // Ein abgelehnter Attach bleibt abgelehnt: der geaenderte Kontext allein holt
+    // das Modem nicht ins LTE zurueck, es muss neu attachen.
+    modemAtTest(ifNum, epOut, epIn, "AT+CGATT=0");
+    modemAtTest(ifNum, epOut, epIn, "AT+CGATT=1");
+}
+
 // --- Aktionen: die frueheren pppStart/pppStop-Koerper ---
 String PppMachine::doDial() {
     usb_device_handle_t dev = findModemHandle();
@@ -1007,10 +1050,15 @@ String PppMachine::doDial() {
                           (unsigned long)g_modemGen, (unsigned long)(millis() - g_modemEnumMs), first.length() ? first.c_str() : "(nichts)");
         }
     }
+    // Den Attach-APN setzen, BEVOR die Registrierung geprueft wird (siehe
+    // pppEnsureAttachContext) -- sonst haengt der Dial an einer Registrierung,
+    // die ohne richtigen APN nie kommt.
+    pppEnsureAttachContext(3, 0x0F, 0x86);
     // Registrierung auf dem zuverlaessigen AT-Port IF3 pruefen (vor IF3-Freigabe).
     if (!modemWaitRegistered(3, 0x0F, 0x86, 20)) {
-        return "Modem nicht im Netz registriert (Signal/Band pruefen; nach Bandwechsel "
-               "dauert der Neu-Attach ~10-20s). Kurz warten, dann erneut 'Verbinden'.";
+        return "Modem nicht im Netz registriert (Signal/Band pruefen; passt der APN zur SIM? "
+               "nach APN- oder Bandwechsel dauert der Neu-Attach ~10-20s). Kurz warten, dann "
+               "erneut 'Verbinden'.";
     }
     // RF-Snapshot holen, solange IF3 noch geclaimt ist (Band/Frequenz/Signal fuer die
     // UI; bei aktivem PPP ist IF3-AT nicht mehr moeglich).
@@ -1085,7 +1133,10 @@ String PppMachine::doDial() {
         if (!simSt.startsWith("READY")) return "SIM: " + simSt;
     }
 
-    // Kontext 1 auf IF4 setzen: erst deaktivieren, dann APN + PDP-Typ.
+    // Kontext 1 auf IF4 setzen: erst deaktivieren, dann APN + PDP-Typ. Der Attach
+    // laeuft laengst mit diesen Werten (pppEnsureAttachContext oben); hier geht es
+    // um den Kontext, den ATD aufbaut -- der Dial bleibt damit selbsttragend,
+    // auch wenn das Modem zwischendurch neu enumeriert hat.
     String apn = modemApn.length() ? modemApn : String("netpublic");
     String pdp = (modemPdpType == "IPV4V6") ? String("IPV4V6") : String("IP");
     modemAtTest(PPP_IF, PPP_EPOUT, PPP_EPIN, "AT+CGACT=0,1");
